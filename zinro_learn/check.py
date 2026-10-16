@@ -114,6 +114,8 @@ def check_example(ex: dict, game: dict | None) -> list[str]:
         problems.append(f"{name}: register が {ex.get('register')!r}(敬語かタメ口)")
     if not ex["utterance"].strip() or not ex["situation"].strip():
         problems.append(f"{name}: utterance か situation が空")
+    if ex.get("outcome") not in (None, "avoid"):
+        problems.append(f"{name}: outcome が {ex['outcome']!r}(avoid か、なし)")
     problems += [f"{name}: 説明口調・冗長の語 {word!r} が発言にある" for word in BANNED if word in ex["utterance"]]
     problems += check_reply_to(ex, game)
     if game is not None:
