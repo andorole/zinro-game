@@ -18,7 +18,7 @@
 | `logs/raw/<id>.txt` | 貼り付けた生ログ | 管理外 |
 | `logs/normalized/<id>.json` | 時系列に直し、名前を A, B, C に置き換えたもの | 管理外 |
 | `logs/private/<id>.players.json` | 匿名名と実名の対応 | 管理外 |
-| `zinro_learn/` | 取り込み(`parse.py`)と統計(`analyze.py`) | 管理 |
+| `zinro_learn/` | 取り込み(`parse.py`)・統計(`analyze.py`)・整合性チェックと型の表の同期(`check.py`) | 管理 |
 | `knowledge/discussion_style.md` | 議論の型・長さ・語彙と、プロンプト用の要約 | 管理 |
 | `knowledge/playbook.md` | 立ち回りの観察 | 管理 |
 | `knowledge/examples.jsonl` | 局面ごとの発言例(標準語に言い換えたもの) | 管理 |
@@ -30,6 +30,8 @@
 ```
 python -m zinro_learn ingest logs/raw/<id>.txt --players "実名1=A,実名2=B,実名3=C" --alias 通称=実名1 --discussion-seconds 300
 python -m zinro_learn stats logs/normalized/<id>.json
+python -m zinro_learn sync      # 発言例から、ガイドの「発言の型」の表を作り直す
+python -m zinro_learn check     # knowledge/ の整合性を調べる(問題があれば終了コード 1)
 python -m unittest
 ```
 
@@ -37,6 +39,7 @@ python -m unittest
 - `--discussion-seconds` は1日あたりの議論時間(延長前の秒数)。指定すると字/分を出せる。延長は、ログの通知から数える。
 - 本文中の通称(例: ハンドル名の略称)は `--alias 通称=実名` で匿名化の対象に加える。
 - 霊界(死者・観戦者のチャット)と自分宛ての行は、発言として数えない。プレイヤー以外の名前は O1, O2… に匿名化する。
+- ログを足す手順: `ingest` → `stats` → 発言例を `knowledge/examples.jsonl` の末尾に追記(話者ごとの `tier` と `register` を付ける) → `sync` → 表の「(要記入)」を埋める → `check` → ガイドと立ち回りメモを更新。`check` は、発言例とログの突き合わせ、表のずれ、実名の混入、説明口調の語、原文との18字以上の一致を調べる。
 
 ## 次にほしいログ
 

@@ -1,6 +1,8 @@
 """使い方:
   python -m zinro_learn ingest logs/raw/<id>.txt --players "実名1=A,実名2=B" --alias 通称=実名1 --discussion-seconds 300
   python -m zinro_learn stats logs/normalized/<id>.json [...]
+  python -m zinro_learn sync     # 発言例から、ガイドの「発言の型」の表を作り直す
+  python -m zinro_learn check    # knowledge/ の整合性を調べる(問題があれば終了コード 1)
 """
 from __future__ import annotations
 
@@ -9,6 +11,7 @@ import json
 from pathlib import Path
 
 from .analyze import format_stats, speech_stats
+from .check import check, load_examples, sync_table
 from .parse import anonymize, build_mapping, parse_game
 
 
@@ -47,6 +50,25 @@ def stats(args) -> None:
         print(format_stats(speech_stats(game)) + "\n")
 
 
+def sync(args) -> None:
+    root = Path(args.root)
+    path = root / "knowledge/discussion_style.md"
+    path.write_text(
+        sync_table(path.read_text(encoding="utf-8"), load_examples(root / "knowledge/examples.jsonl")),
+        encoding="utf-8",
+    )
+    print(f"{path}: 発言の型の表を更新した(「(要記入)」の説明は手で書く)")
+
+
+def run_check(args) -> None:
+    problems = check(Path(args.root))
+    for problem in problems:
+        print("-", problem)
+    if problems:
+        raise SystemExit(1)
+    print("問題なし")
+
+
 def main(argv=None) -> None:
     parser = argparse.ArgumentParser(prog="zinro_learn")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -65,6 +87,14 @@ def main(argv=None) -> None:
     p = sub.add_parser("stats", help="発言の長さなどの統計を表示する")
     p.add_argument("normalized", nargs="+")
     p.set_defaults(func=stats)
+
+    p = sub.add_parser("sync", help="発言例から、ガイドの「発言の型」の表を作り直す")
+    p.add_argument("--root", default=".")
+    p.set_defaults(func=sync)
+
+    p = sub.add_parser("check", help="knowledge/ の整合性を調べる")
+    p.add_argument("--root", default=".")
+    p.set_defaults(func=run_check)
 
     args = parser.parse_args(argv)
     args.func(args)
