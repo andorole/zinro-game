@@ -40,6 +40,35 @@ SAMPLE = """\
 
 PARTIAL = "ボブ: こんにちは\n鯖→ボブ: あなたは【村人】です\n"
 
+# 名前に「：」を含む人(RE：ハル)と、勝利の通知より後のゲーム後の雑談がある、架空のログ。
+COLON_NAME = """\
+鯖: ゲームを終了しました。お疲れさまでした。
+ボブ: お疲れさまでした
+RE：ハル: 勝てた：ありがとう
+鯖: 人狼が全滅しました!【村人チーム】の勝利です!
+鯖: 【投票結果】
+ボブ(0票)の投票先→RE：ハル
+RE：ハル(2票)の投票先→ボブ
+アリス(0票)の投票先→RE：ハル
+投票の結果【RE：ハル】さんが処刑されます
+鯖: RE：ハルさんが死亡しました
+アリス→GM: 投票@アリス→RE：ハル
+RE：ハル→GM: 投票@RE：ハル→ボブ
+ボブ→GM: 投票@ボブ→RE：ハル
+鯖: 投票時間になりました。話すのをやめてください。
+RE：ハル→霊界: 見ています
+RE：ハル: ボブさん、どう思いますか？
+アリス: ハルさんは怪しい
+ボブ: 同じです。
+鯖: 恐ろしい夜が明け、朝になりました。
+鯖: 夜になりました…役職の人は能力を実行してください
+鯖: ゲームを開始します
+鯖: 役職設定【人狼-1,村人-2,役欠け:あり】
+鯖→アリス: あなたは【村人】です
+鯖→RE：ハル: あなたは【人狼】です
+鯖→ボブ: あなたは【村人】です
+"""
+
 
 class ParseTest(unittest.TestCase):
     def setUp(self):
@@ -98,6 +127,52 @@ class ParseTest(unittest.TestCase):
             result["votes"][2], {"player": "カレン", "received": 2, "voted_for": "ボブ"}
         )
         self.assertEqual(next(e for e in self.events if e.get("death") == "初日犠牲者")["phase"], "night")
+
+
+class ColonNameTest(unittest.TestCase):
+    def setUp(self):
+        self.game = parse_game(COLON_NAME, game_id="colon")
+        self.events = self.game["events"]
+
+    def test_name_with_colon_is_a_player(self):
+        self.assertEqual(self.game["players"]["RE：ハル"], {"role": "人狼"})
+        notice = next(e for e in self.events if e["kind"] == "private" and e["text"].startswith("あなたは【人狼"))
+        self.assertEqual(notice["to"], "RE：ハル")
+
+    def test_speech_and_spirit_lines_of_that_name(self):
+        speech = [e for e in self.events if e["kind"] == "speech" and e["speaker"] == "RE：ハル"]
+        self.assertEqual([e["text"] for e in speech], ["ボブさん、どう思いますか？"])
+        spirit = next(e for e in self.events if e["kind"] == "spirit")
+        self.assertEqual((spirit["speaker"], spirit["text"]), ("RE：ハル", "見ています"))
+
+    def test_commands_and_vote_lines_of_that_name(self):
+        votes = {e["actor"]: e["target"] for e in self.events if e["kind"] == "command"}
+        self.assertEqual(votes, {"アリス": "RE：ハル", "RE：ハル": "ボブ", "ボブ": "RE：ハル"})
+        result = next(e for e in self.events if "votes" in e)
+        self.assertEqual(result["executed"], "RE：ハル")
+        self.assertEqual(
+            result["votes"][1], {"player": "RE：ハル", "received": 2, "voted_for": "ボブ"}
+        )
+        self.assertEqual(next(e for e in self.events if "death" in e)["death"], "RE：ハル")
+        self.assertFalse([e for e in self.events if e["kind"] == "directed"])
+
+    def test_after_game_talk_is_kept_apart_from_speech(self):
+        after = [e for e in self.events if e["kind"] == "after"]
+        self.assertEqual([e["speaker"] for e in after], ["RE：ハル", "ボブ"])
+        self.assertEqual(after[0]["text"], "勝てた：ありがとう")
+        self.assertTrue(all(e["phase"] == "end" for e in after))
+        self.assertEqual(len([e for e in self.events if e["kind"] == "speech"]), 3)
+        stats = speech_stats(anonymize(self.game, build_mapping(self.game)))
+        self.assertEqual(stats["speech_messages"], 3)
+
+    def test_anonymize_replaces_name_and_alias(self):
+        mapping = build_mapping(self.game, {"RE：ハル": "C"})
+        anonymized = anonymize(self.game, mapping, {"ハル": "RE：ハル"})
+        dumped = json.dumps(anonymized, ensure_ascii=False)
+        self.assertNotIn("ハル", dumped)
+        self.assertEqual(mapping, {"RE：ハル": "C", "ボブ": "A", "アリス": "B"})
+        speech = next(e for e in anonymized["events"] if e["kind"] == "speech" and e["speaker"] == "B")
+        self.assertEqual(speech["text"], "《C》さんは怪しい")
 
 
 class AnonymizeTest(unittest.TestCase):

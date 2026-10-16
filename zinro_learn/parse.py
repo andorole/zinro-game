@@ -2,6 +2,8 @@
 
 ログは新しい発言が上に来る。1発言は複数行になることがあり、2行目以降には
 「名前:」が付かない。発言者名は役職通知(鯖→名前: あなたは【役職】です)から集める。
+名前にコロンを含む人(例: 「RE：〇〇」)も、役職通知から集めた名前として照合する。
+勝利の通知より後の発言は、ゲーム後の雑談(after)として分ける。
 """
 from __future__ import annotations
 
@@ -10,10 +12,10 @@ import string
 from dataclasses import dataclass
 
 SEP = r"[:：]\s?"
-ROLE_NOTICE = re.compile(rf"^鯖→(?P<name>[^:：]+?){SEP}あなたは【(?P<role>[^】]+)】です$")
+COLON = re.compile(r"[:：]")
+ROLE_NOTICE = re.compile(rf"^鯖→(?P<name>.+?){SEP}あなたは【(?P<role>[^】]+)】です$")
 ROLE_TEXT = re.compile(r"^あなたは【(?P<role>[^】]+)】です$")
 SYSTEM = re.compile(rf"^鯖{SEP}(?P<text>.*)$")
-DIRECTED = re.compile(rf"^(?P<src>[^:：→]+)→(?P<dst>[^:：→]+?){SEP}(?P<text>.*)$")
 COMMAND_BODY = re.compile(r"^(?P<action>[^@]+)@(?P<actor>[^→]+)→(?P<target>.+)$")
 VOTE_LINE = re.compile(r"^(?P<player>.+?)\((?P<received>\d+)票\)の投票先→(?P<voted_for>.+)$")
 EXECUTED = re.compile(r"投票の結果【(?P<name>[^】]+)】さんが処刑されます")
@@ -45,6 +47,17 @@ def directed(src: str, dst: str, text: str) -> Message:
     return Message("directed", text, speaker=src, to=dst)
 
 
+def directed_pattern(names: set[str]) -> re.Pattern:
+    """「送り手→宛先: 本文」の行。名前の欄にコロンは入らないが、コロンを含む名前の人は既知の名前として先に照合する。"""
+    with_colon = sorted((n for n in names if COLON.search(n)), key=len, reverse=True)
+    if with_colon:
+        known = "|".join(re.escape(n) for n in with_colon)
+        name = rf"(?:{known}|(?!{known})[^:：→]+)"
+    else:
+        name = r"[^:：→]+"
+    return re.compile(rf"^(?P<src>{name})→(?P<dst>{name}){SEP}(?P<text>.*)$")
+
+
 def collect_roles(lines: list[str]) -> dict[str, str]:
     roles = {}
     for line in lines:
@@ -54,13 +67,14 @@ def collect_roles(lines: list[str]) -> dict[str, str]:
 
 
 def split_messages(lines: list[str], names: set[str]) -> list[Message]:
+    directed_line = directed_pattern(names)
     speech = None
     if names:
         alternatives = "|".join(re.escape(n) for n in sorted(names, key=len, reverse=True))
         speech = re.compile(rf"^(?P<name>{alternatives}){SEP}(?P<text>.*)$")
     messages: list[Message] = []
     for line in lines:
-        if m := DIRECTED.match(line):
+        if m := directed_line.match(line):
             messages.append(directed(m["src"], m["dst"], m["text"]))
         elif m := SYSTEM.match(line):
             messages.append(Message("system", m["text"]))
@@ -130,11 +144,13 @@ def annotate(messages: list[Message]) -> list[dict]:
     for seq, m in enumerate(messages, 1):
         if m.kind == "system":
             phase, day = advance(phase, day, m.text)
+        # 勝利の通知より後の発言はゲーム後の雑談。議論の発言としては数えない
+        kind = "after" if m.kind == "speech" and phase == "end" else m.kind
         event = {
             "seq": seq,
             "phase": phase,
             "day": day,
-            "kind": m.kind,
+            "kind": kind,
             "speaker": m.speaker,
             "to": m.to,
             "text": m.text,
