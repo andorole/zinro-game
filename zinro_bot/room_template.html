@@ -147,6 +147,7 @@ textarea.fb { width: 100%; height: 120px; margin-top: 8px; font: 12px/1.5 var(--
         <label><input type="radio" name="tier" value="default"><span>標準<small>考えてから書く。数秒〜数十秒</small></span></label>
         <label><input type="radio" name="tier" value="complex"><span>高精度<small>いちばん考える。遅い</small></span></label>
       </div>
+      <p class="hint">「標準」「高精度」は、最初の発言まで数十秒かかることがある。100秒未満の議論は「速い」がおすすめ。</p>
     </div>
     <div class="grid2">
       <div class="field"><label for="speed">AI の打鍵速度</label>
@@ -446,6 +447,8 @@ function schedule(call, obj) {
   const a = call.agent;
   const text = sanitize(obj.text, a);
   if (!text) return;
+  const mine = S.posts.filter((p) => p.speaker === a.name).slice(-5).map((p) => p.text).concat(a.queue.map((q) => q.text));
+  if (mine.includes(text)) return;
   const t = elapsed();
   const at = clamp(Number(obj.at) || 0, 0, CHUNK);
   const typing = THINK + len(text) / S.cfg.cps;
