@@ -19,6 +19,7 @@ GROUP = {1: "B", 2: "A", 3: "他"}
 BANNED = ["つまり", "例えば", "たとえば", "ではないでしょうか", "ということです", "という点", "ご自身"]
 OVERLAP_LIMIT = 18  # 原文との逐語一致がこの字数以上なら、言い換え不足とみなす
 MAX_REPLY_TO = 4  # 1つの発言が受ける発言の数の上限(これ以上は絞って付ける)
+MIN_NAME_LENGTH = 2  # 実名の混入を調べる名前の最小の長さ(1文字の名前は誤検出になる)
 PLACEHOLDER = "(要記入)"
 ROW = re.compile(r"^\| (?P<tag>[a-z_]+) \|")
 
@@ -152,11 +153,12 @@ def tracked_files(root: Path) -> list[Path]:
 
 
 def check_names(root: Path) -> list[str]:
-    """匿名化の対応表(git 管理外)にある実名が、git 管理のファイルに混ざっていないか。"""
+    """匿名化の対応表(git 管理外)にある実名が、git 管理のファイルに混ざっていないか。1文字の名前は、文中の文字と区別できないので調べない。"""
     names: set[str] = set()
     for path in (root / "logs/private").glob("*.players.json"):
         data = json.loads(path.read_text(encoding="utf-8"))
         names |= set(data["players"].values()) | set(data["aliases"])
+    names = {name for name in names if len(name) >= MIN_NAME_LENGTH}
     problems = []
     for path in tracked_files(root):
         text = path.read_text(encoding="utf-8")

@@ -127,6 +127,16 @@ class CheckTest(unittest.TestCase):
         self.assertIn("README.md に実名 'テスト太郎'", problems)
         self.assertIn("ex01: 原文と", problems)
 
+    def test_one_letter_names_are_not_reported(self):
+        write_project(self.root, table=sync_table(TABLE, EXAMPLES).replace(PLACEHOLDER, "x"))
+        (self.root / "logs/private").mkdir(parents=True)
+        (self.root / "logs/private/g1.players.json").write_text(
+            json.dumps({"players": {"O1": "X", "A": "テスト太郎"}, "aliases": {}}, ensure_ascii=False),
+            encoding="utf-8",
+        )
+        (self.root / "README.md").write_text("Xの文字を含む説明\n", encoding="utf-8")
+        self.assertEqual(check(self.root), [])
+
     def test_longest_overlap(self):
         self.assertEqual(longest_overlap("あいうえお", "かいうえき"), 3)
 
