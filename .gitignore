@@ -2,6 +2,7 @@
 logs/raw/
 logs/normalized/
 logs/private/
+logs/sessions/
 
 __pycache__/
 *.pyc

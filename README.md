@@ -27,6 +27,9 @@
 | `knowledge/playbook.md` | 立ち回りの観察 | 管理 |
 | `knowledge/reply_structure.md` | 返信の構造(連投、複数への返信、遅れた返信、返さない発言)と、設計メモ | 管理 |
 | `knowledge/examples.jsonl` | 局面ごとの発言例(標準語に言い換えたもの) | 管理 |
+| `knowledge/bot_prompt.md` | ボットへの指示(守ること、手順、局面別、出力形式)。調査結果を指示の形に直したもの | 管理 |
+| `zinro_bot/` | ボット(試作): ログの読み取り(`transcript.py`)、プロンプトの組み立て(`prompt.py`)、API 呼び出し(`llm.py`)、検査(`validate.py`)、1ターンの処理(`engine.py`)、過去ログの再生と評価(`replay.py`) | 管理 |
+| `.claude/skills/zinro-player/` | Claude Code で、API キーなしにボットを使うスキル | 管理 |
 
 生ログと中間ファイルには他のプレイヤーの発言が含まれるので、git には載せない。`knowledge/` には、匿名化して言い換えたものだけを置く。
 
@@ -47,6 +50,42 @@ python -m unittest
 - 霊界(死者・観戦者のチャット)と自分宛ての行は、発言として数えない。プレイヤー以外の名前は O1, O2… に匿名化する。
 - 勝利の通知より後の発言は、ゲーム後の雑談として `after` に分け、発言として数えない。名前に「：」を含む人(例: 「RE：〇〇」)も、役職通知から名前を拾って読む(`--players` にもそのまま書ける)。
 - ログを足す手順: `ingest` → `stats` → 発言例を `knowledge/examples.jsonl` の末尾に追記(話者ごとの `tier` と `register`、その発言が受けている発言の seq `reply_to` を付ける) → `sync` → 表の「(要記入)」を埋める → `check` → ガイドと立ち回りメモを更新。`check` は、発言例とログの突き合わせ(`reply_to` を含む)、表のずれ、実名の混入、説明口調の語、原文との18字以上の一致を調べる。
+
+## ボット(試作)
+
+貼ったログを読んで、次に書く発言の案(0〜4件)を返す。zinro.net には接続せず、投稿は人間が行う(自動投稿はしない)。知識は `knowledge/` から組み立てる(重みは学習しない)。
+
+使い方は3通り。
+
+1. API(キーが要る): 環境変数 `ANTHROPIC_API_KEY`(または、リポジトリ直下の `.env`)を設定して、ログを渡す。
+   ```
+   python -m zinro_bot reply ログ.txt --me 名前 --role 人狼 --remaining 200
+   pbpaste | python -m zinro_bot reply - --me 名前
+   python -m zinro_bot reply ログ.txt --show-transcript   # 読み取った発言者・並び・番号の確認
+   ```
+   役職通知が1人分だけのログなら、`--me` と `--role` は省ける。`--model` で変える(既定は `claude-opus-5-5`、環境変数 `ZINRO_BOT_MODEL` でも指定できる)。`--thinking 4000` で考えさせる。`--register 敬語` で語調を変える。
+2. Claude Code(キーは要らない): このリポジトリで、`zinro-player` スキルに、ログを貼って頼む。
+3. Claude のプロジェクト(キーは要らない): `python -m zinro_bot prompt --me 名前 --role 村人 --format chat --out prompt.txt` の出力を、プロジェクトの指示に貼り、ログを貼って頼む。
+
+手元で試す: `python -m zinro_bot chat --me ボット --role 村人 --players あなた,相手`(「名前: 発言」で別の人として話し、空行でボットの番)。モデルを呼ばずに流れだけ見るなら `--fake`。
+
+作りの要点(「超人型」への対応):
+
+- 量と構造: 1ターンに 0〜4件を、返信先(`reply_to`)つきで出す。連投、複数への返信、数件前への返信を許す。ログから機械的に拾った「未回収の問い」と「文字量の割合」を添える。
+- 読み: 出力の `read` に、発言者ごとの立場・基準・矛盾を先に書かせてから、発言を書かせる。
+- 検査: 説明口調の語、方言、箇条書き、例文の写し(18字以上の一致)、長すぎる発言、役職の漏れを検査し、落ちた投稿は理由つきで出し直させる。落ちたままの投稿は捨てる。
+- 発言例: 型ごとに B・A(tier 1・2)から選び、役職に合うものを優先する。裏目に出た動き(`outcome=avoid`)は「避ける動き」として見せる。
+- 守っていること: 本気で人間かAIかを聞かれたら嘘をつかない。ゲームに参加していない人を悪く言わない。
+
+評価: 過去のゲームを途中まで再生して、ボットの出力と実際の発言を並べる(そのゲームの発言例はプロンプトから除く)。
+
+```
+python -m zinro_bot cases --game log08 --me A --k 3 --out eval   # eval/in/ に指示と状況、eval/truth/ に実際の発言
+# モデルの出力(JSON)を eval/out/<ケース名>.json に置く(API を使うなら reply と同じ処理)
+python -m zinro_bot score eval
+```
+
+未確認: 実際の API 呼び出し(開発環境にキーがなかったため、台本クライアントとテストだけで確認)、実戦での強さ、返信の間(時刻のあるログがない)。
 
 ## 次にほしいログ
 
