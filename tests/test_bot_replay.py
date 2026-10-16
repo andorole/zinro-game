@@ -1,6 +1,13 @@
+import json
+import shutil
+import tempfile
 import unittest
+from pathlib import Path
 
-from zinro_bot.replay import burst_starts, rename, spread, table_from_game, truth_burst
+from zinro_bot.llm import ApiError, ScriptedClient
+from zinro_bot.replay import burst_starts, last_vote, rename, run_cases, score_case, spread, summarize, table_from_game, truth_burst
+
+ROOT = Path(__file__).resolve().parent.parent
 
 NAMES = {"A": "アキラ", "B": "ブン", "C": "シン"}
 
@@ -22,6 +29,10 @@ GAME = {
         speech(7, "B", "根拠は"),
         speech(8, "B", "それだけ？"),
         speech(9, "A", "うん"),
+        {"seq": 10, "kind": "system", "text": "投票時間になりました。話すのをやめてください。", "phase": "vote"},
+        {"seq": 11, "kind": "command", "action": "投票", "actor": "A", "target": "B", "phase": "vote"},
+        {"seq": 12, "kind": "command", "action": "投票", "actor": "B", "target": "A", "phase": "vote"},
+        {"seq": 13, "kind": "command", "action": "投票", "actor": "C", "target": "B", "phase": "vote"},
     ],
 }
 
@@ -45,6 +56,58 @@ class ReplayTest(unittest.TestCase):
     def test_spread(self):
         self.assertEqual(spread([1, 2, 3, 4, 5, 6, 7], 3), [1, 4, 7])
         self.assertEqual(spread([1, 2], 5), [1, 2])
+
+
+def reply(text: str, vote=None) -> dict:
+    return {
+        "read": {"players": {}, "pending": [], "swing": "", "aim": "根拠を聞く"},
+        "posts": [{"reply_to": [3], "moves": ["probe"], "text": text}],
+        "vote": vote, "silence": "",
+    }
+
+
+class RunCasesTest(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.root = Path(self.tmp.name) / "repo"
+        shutil.copytree(ROOT / "knowledge", self.root / "knowledge")
+        (self.root / "logs/normalized").mkdir(parents=True)
+        (self.root / "logs/normalized/g.json").write_text(json.dumps(GAME, ensure_ascii=False), encoding="utf-8")
+        self.out = Path(self.tmp.name) / "eval"
+
+    def test_last_vote(self):
+        self.assertEqual(last_vote(GAME, "A"), "B")
+        self.assertIsNone(last_vote(GAME, "Z"))
+
+    def test_run_cases_writes_outputs_timing_and_summary(self):
+        # 1件目の切れ目は最初の発言の前(まだ誰も話していない)なので、票は2件目で出す
+        client = ScriptedClient([reply("どこから読んだの？"), reply("その根拠はどこにある？", vote="ブン")])
+        cases = run_cases(self.root, "g", "A", 2, self.out, lambda table: client, min_before=0)
+        self.assertEqual(len(cases), 2)
+        self.assertEqual(cases[1]["wolves"], ["ブン"])
+        self.assertEqual(cases[1]["actual_vote"], "ブン")
+        written = json.loads((self.out / "out" / f"{cases[1]['case']}.json").read_text(encoding="utf-8"))
+        self.assertEqual(written["posts"][0]["text"], "その根拠はどこにある？")
+        self.assertEqual(written["vote"], "ブン")
+        run = json.loads((self.out / "out" / f"{cases[1]['case']}.run.json").read_text(encoding="utf-8"))
+        self.assertGreaterEqual(run["seconds"], 0)
+        self.assertEqual(run["attempts"], 1)
+        text = score_case(self.root, self.out, cases[1])
+        self.assertIn("票: ボット ブン / 実際 ブン / 狼 ブン", text)
+        self.assertIn("所要", text)
+        summary = summarize(self.out, cases)
+        self.assertIn("ケース 2件", summary)
+        self.assertIn("狼を指した: 1件", summary)
+
+    def test_api_failures_are_recorded_and_skipped(self):
+        class Broken:
+            def complete(self, system, messages):
+                raise ApiError("ダメ")
+
+        cases = run_cases(self.root, "g", "A", 1, self.out, lambda table: Broken(), min_before=0)
+        self.assertEqual(cases[0]["error"], "ダメ")
+        self.assertIn("API の失敗 1件", summarize(self.out, cases))
 
 
 if __name__ == "__main__":

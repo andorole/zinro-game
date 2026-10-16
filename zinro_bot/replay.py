@@ -12,10 +12,11 @@ from pathlib import Path
 
 from zinro_learn.parse import advance, EXTENSION
 
-from .engine import make_context, user_message
+from .engine import make_context, respond, user_message
+from .llm import ApiError
 from .prompt import as_text
 from .transcript import Post, Table, _worth_noting
-from .validate import build_turn
+from .validate import build_turn, turn_to_dict
 
 FAKE_NAMES = {"A": "アキラ", "B": "ブン", "C": "シン", "D": "ダイ", "E": "エイジ"}
 LABEL = re.compile(r"《([A-Z]\d?)》")
@@ -75,6 +76,15 @@ def truth_burst(game: dict, start_seq: int, me: str, names: dict[str, str], limi
     return out
 
 
+def last_vote(game: dict, who: str) -> str | None:
+    """who が投票した相手(複数回なら最後)。投票の記録がなければ None。"""
+    target = None
+    for e in game["events"]:
+        if e["kind"] == "command" and e.get("action") == "投票" and e.get("actor") == who:
+            target = e.get("target")
+    return target
+
+
 def spread(items: list[int], k: int) -> list[int]:
     if k >= len(items):
         return items
@@ -101,14 +111,86 @@ def write_cases(root: Path, game_id: str, me: str, k: int, out: Path, register: 
         name = f"{game_id}_{me}_{index:02d}"
         (out / "in" / f"{name}.user.txt").write_text(user_message(table, None, register), encoding="utf-8")
         truth = truth_burst(game, seq, me, names)
+        vote = last_vote(game, me)
         meta = {
             "case": name, "game": game_id, "me": me, "fake_me": names.get(me, me), "role": role, "cut_seq": seq,
             "posts_before": len(table.posts), "system": system_path.name, "players": table.players,
-            "truth": truth,
+            "truth": truth, "actual_vote": names.get(vote, vote) if vote else None,
+            "wolves": [names.get(key, key) for key, info in game["players"].items() if info["role"] == "人狼"],
         }
         (out / "truth" / f"{name}.json").write_text(json.dumps(meta, ensure_ascii=False, indent=1), encoding="utf-8")
         cases.append(meta)
     return cases
+
+
+def run_cases(
+    root: Path, game_id: str, me: str, k: int, out: Path, client_for, register: str = "タメ口",
+    min_before: int = 6, retries: int = 2, critic: bool = False,
+) -> list[dict]:
+    """ケースを作り、そのままモデルに回して out/out/ に書く。所要時間と、検査で捨てた投稿も out/out/<ケース>.run.json に残す。
+    client_for(table) はクライアントを返す関数。API が失敗したケースは meta["error"] に理由を入れて飛ばす。"""
+    root, out = Path(root), Path(out)
+    cases = write_cases(root, game_id, me, k, out, register, min_before)
+    game = load_game(root, game_id)
+    names = dict(FAKE_NAMES)
+    ctx = make_context(root, names.get(me, me), game["players"][me]["role"], register, exclude_games=(game_id,))
+    (out / "out").mkdir(parents=True, exist_ok=True)
+    for meta in cases:
+        table, _ = table_from_game(game, meta["cut_seq"], me, names)
+        try:
+            result = respond(client_for(table), ctx, table, None, register, retries, None, critic)
+        except ApiError as exc:
+            meta["error"] = str(exc)
+            continue
+        usage = {key: sum((u.get(key) or 0) for u in result.usage) for key in ("input_tokens", "output_tokens", "cache_read_input_tokens", "cache_creation_input_tokens")}
+        run = {"seconds": round(result.seconds, 2), "attempts": result.attempts, "problems": result.turn.problems, "usage": usage}
+        (out / "out" / f"{meta['case']}.json").write_text(json.dumps(turn_to_dict(result.turn), ensure_ascii=False, indent=1), encoding="utf-8")
+        (out / "out" / f"{meta['case']}.run.json").write_text(json.dumps(run, ensure_ascii=False, indent=1), encoding="utf-8")
+    return cases
+
+
+def read_json(path: Path) -> dict | None:
+    return json.loads(path.read_text(encoding="utf-8")) if path.is_file() else None
+
+
+def summarize(out: Path, metas: list[dict]) -> str:
+    """eval の集計。所要時間、量(ボットと実際)、捨てた投稿、村人役の票が狼に当たった数。"""
+    out = Path(out)
+    seconds, mine, real, dropped, errors = [], [], [], 0, 0
+    hits = votes = 0
+    for meta in metas:
+        if meta.get("error"):
+            errors += 1
+            continue
+        data = read_json(out / "out" / f"{meta['case']}.json")
+        run = read_json(out / "out" / f"{meta['case']}.run.json") or {}
+        if data is None:
+            continue
+        seconds.append(run.get("seconds", 0.0))
+        dropped += len(run.get("problems") or [])
+        posts = data.get("posts") or []
+        mine.append((len(posts), sum(len(p["text"]) for p in posts)))
+        real.append((len(meta["truth"]), sum(len(t["text"]) for t in meta["truth"])))
+        if meta["role"] == "村人" and data.get("vote"):
+            votes += 1
+            hits += data["vote"] in (meta.get("wolves") or [])
+    if not seconds:
+        return f"== 集計 ==\n出力が1件もない(API の失敗 {errors}件)"
+
+    def mean(pairs: list[tuple[int, int]], index: int) -> float:
+        return sum(pair[index] for pair in pairs) / len(pairs)
+
+    lines = [
+        f"== 集計 (ケース {len(seconds)}件) ==",
+        f"所要: 平均 {sum(seconds) / len(seconds):.1f}秒 / 最大 {max(seconds):.1f}秒(出し直し・点検を含む1ターン分)",
+        f"量(1ターン): ボット 平均 {mean(mine, 0):.1f}件 {mean(mine, 1):.0f}字 / 実際 平均 {mean(real, 0):.1f}件 {mean(real, 1):.0f}字",
+        f"検査で捨てられた投稿: {dropped}件",
+    ]
+    if votes:
+        lines.append(f"村人役で票を出したケース {votes}件のうち、狼を指した: {hits}件(3人卓では、当てずっぽうでも約半分)")
+    if errors:
+        lines.append(f"API の失敗: {errors}件")
+    return "\n".join(lines)
 
 
 def tail(user_text: str, lines: int = 8) -> str:
@@ -141,4 +223,10 @@ def score_case(root: Path, out: Path, meta: dict) -> str:
     chars = sum(len(p.text) for p in turn.posts)
     actual = sum(len(t["text"]) for t in meta["truth"])
     bot.append(f"  量: ボット {len(turn.posts)}件 {chars}字 / 実際 {len(meta['truth'])}件 {actual}字")
+    if turn.vote or meta.get("actual_vote"):
+        wolves = "、".join(meta.get("wolves") or [])
+        bot.append(f"  票: ボット {turn.vote or 'なし'} / 実際 {meta.get('actual_vote') or 'なし'}" + (f" / 狼 {wolves}" if wolves else ""))
+    run = read_json(Path(out) / "out" / f"{case}.run.json")
+    if run:
+        bot.append(f"  所要 {run['seconds']:.1f}秒 / 試行{run['attempts']}回 / 入力{run['usage']['input_tokens']} 出力{run['usage']['output_tokens']} キャッシュ読込{run['usage']['cache_read_input_tokens']}")
     return "\n".join([*head, *truth, *bot])

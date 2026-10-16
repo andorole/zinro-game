@@ -3,8 +3,9 @@
   python -m zinro_bot check 出力.json --log ログ.txt --me 名前       # 出力(JSON)を、貼れるか検査する(API を使わない経路用)
   python -m zinro_bot reply ログ.txt --me 名前 --role 人狼    # 貼ったログを読んで、次の発言の案を出す(要 ANTHROPIC_API_KEY)
   pbpaste | python -m zinro_bot reply - --me 名前             # 標準入力から読む
-  python -m zinro_bot chat --me ボット --role 村人 --players あなた,相手   # 手元で会話して試す
-  python -m zinro_bot cases --game log08 --me B --out eval    # 評価用のケースを作る(過去ログを途中まで再生)
+  python -m zinro_bot chat --me ボット --role 村人 --players あなた,相手   # 手元で会話して試す(所要秒つき)
+  python -m zinro_bot eval --game log08:A --game log10:B --k 3   # 過去ゲームを途中まで再生して、モデルに回し、実際の発言と並べる(所要秒・票の集計つき)
+  python -m zinro_bot cases --game log08 --me B --out eval    # 評価用のケースだけ作る(出力は別のモデルや人が置く場合)
   python -m zinro_bot score eval                              # eval/out/ の出力を、実際の発言と並べる
 zinro.net には接続しない。投稿は人間が行う。
 """
@@ -18,9 +19,9 @@ from pathlib import Path
 from .engine import Result, make_context, make_memory, respond
 from .llm import AnthropicClient, ApiError, ScriptedClient, load_env
 from .prompt import as_text, build_system
-from .replay import score_case, write_cases
+from .replay import run_cases, score_case, summarize, write_cases
 from .transcript import Table, parse_table, render
-from .validate import build_turn
+from .validate import build_turn, turn_to_dict
 
 
 def split_names(value: str) -> list[str]:
@@ -87,7 +88,21 @@ def usage_line(result: Result) -> str:
     for usage in result.usage:
         for key in total:
             total[key] += usage.get(key, 0) or 0
-    return f"(試行{result.attempts}回 / 入力{total['input_tokens']} 出力{total['output_tokens']} キャッシュ読込{total['cache_read_input_tokens']} 書込{total['cache_creation_input_tokens']})"
+    return f"(所要{result.seconds:.1f}秒 / 試行{result.attempts}回 / 入力{total['input_tokens']} 出力{total['output_tokens']} キャッシュ読込{total['cache_read_input_tokens']} 書込{total['cache_creation_input_tokens']})"
+
+
+def session_summary(results: list[Result]) -> str:
+    """chat の終了時に出す、ターンごとの所要時間と量の集計。"""
+    if not results:
+        return ""
+    seconds = [r.seconds for r in results]
+    posts = sum(len(r.turn.posts) for r in results)
+    chars = sum(len(p.text) for r in results for p in r.turn.posts)
+    turns = len(results)
+    return (
+        f"集計: {turns}ターン / 所要 平均{sum(seconds) / turns:.1f}秒 最大{max(seconds):.1f}秒 / "
+        f"投稿 計{posts}件{chars}字(1ターン平均 {posts / turns:.1f}件 {chars / turns:.0f}字)"
+    )
 
 
 def load_memory(root: Path, name: str | None) -> dict | None:
@@ -135,8 +150,7 @@ def cmd_reply(args) -> None:
         raise SystemExit(f"エラー: {exc}") from exc
     save_memory(root, args.session, table, result)
     if args.json:
-        turn = result.turn
-        print(json.dumps({"posts": [{"reply_to": p.reply_to, "moves": p.moves, "text": p.text} for p in turn.posts], "vote": turn.vote, "silence": turn.silence, "read": turn.read}, ensure_ascii=False, indent=1))
+        print(json.dumps(turn_to_dict(result.turn), ensure_ascii=False, indent=1))
     else:
         print(format_result(result, args.plain))
         if not args.plain:
@@ -163,17 +177,29 @@ def cmd_chat(args) -> None:
     players = split_names(args.players) or ["あなた"]
     lines = ["鯖: 恐ろしい夜が明け、朝になりました。"]
     ctx = make_context(root, args.me, args.role, args.register)
-    print(f"{args.me}({args.role})と会話する。「名前: 発言」で別の人として発言。空行か /go でボットの番。/log で履歴、/quit で終了。")
-    memory = None
+    print(f"{args.me}({args.role})と会話する。「名前: 発言」で別の人として発言。空行か /go でボットの番。")
+    print("/残り 秒(残り時間を伝える)  /延長  /投票(投票時間にする)  /log(履歴)  /quit(終了。所要時間の集計を出す)")
+    memory, remaining, results = None, None, []
     while True:
         try:
             line = input("> ").rstrip()
         except EOFError:
-            return
+            break
         if line == "/quit":
-            return
+            break
         if line == "/log":
-            print(render(parse_table("\n".join(lines), args.me, args.role, players + [args.me], "oldest-first"), None, args.register))
+            print(render(parse_table("\n".join(lines), args.me, args.role, players + [args.me], "oldest-first"), remaining, args.register))
+            continue
+        if line.startswith("/残り"):
+            value = line[len("/残り"):].strip()
+            remaining = int(value) if value.isdigit() else None
+            print(f"残り時間: {remaining}秒" if remaining is not None else "残り時間: 指定なし")
+            continue
+        if line == "/延長":
+            lines.append("鯖: 時間を90秒延長しました")
+            continue
+        if line == "/投票":
+            lines.append("鯖: 投票時間になりました。話すのをやめてください。")
             continue
         if line and line != "/go":
             speaker = line.split(":", 1)[0].strip() if ":" in line else ""
@@ -181,15 +207,20 @@ def cmd_chat(args) -> None:
             continue
         table = parse_table("\n".join(lines), args.me, args.role, players + [args.me], "oldest-first")
         try:
-            result = respond(make_client(args, table), ctx, table, None, args.register, args.retries, memory, args.critic)
+            result = respond(make_client(args, table), ctx, table, remaining, args.register, args.retries, memory, args.critic)
         except ApiError as exc:
             print(f"エラー: {exc}")
             continue
         memory = make_memory(table, result.turn)
+        results.append(result)
         print(format_result(result))
+        print(usage_line(result))
         for post in result.turn.posts:
             first, *rest = post.text.split("\n")
             lines += [f"{args.me}: {first}", *rest]
+    summary = session_summary(results)
+    if summary:
+        print(summary)
 
 
 def cmd_cases(args) -> None:
@@ -197,6 +228,29 @@ def cmd_cases(args) -> None:
     for meta in cases:
         print(f"{meta['case']}: 切れ目 seq {meta['cut_seq']}、それまでの発言 {meta['posts_before']}件、実際の発言 {len(meta['truth'])}件")
     print(f"{args.out}/in/ のファイルをモデルに見せ、出力を {args.out}/out/<ケース名>.json に置いてから score を実行する")
+
+
+def cmd_eval(args) -> None:
+    """過去ゲームを途中まで再生してモデルに回し、実際の発言と並べる。--game は、ゲーム名:話者(例 log08:A)で何度でも指定できる。"""
+    root, out = Path(args.root), Path(args.out)
+    load_env(root)
+    metas: list[dict] = []
+    for spec in args.game:
+        game_id, _, me = spec.partition(":")
+        me = me or args.me
+        if not me:
+            raise SystemExit(f"{spec}: 再現する話者を指定する(--me、または {spec}:B のように書く)")
+        metas += run_cases(root, game_id, me, args.k, out, lambda table: make_client(args, table), args.register, args.min_before, args.retries, args.critic)
+    errors = [meta["error"] for meta in metas if meta.get("error")]
+    if metas and len(errors) == len(metas):
+        raise SystemExit(f"エラー: {errors[0]}")
+    for meta in metas:
+        print(score_case(root, out, meta))
+        if meta.get("error"):
+            print(f"  × API エラー: {meta['error']}")
+        print()
+    print(summarize(out, metas))
+    print(f"(出力と所要時間は {out}/out/ に残してある。実際の発言は {out}/truth/ にあり、モデルには見せていない)")
 
 
 def cmd_score(args) -> None:
@@ -272,6 +326,16 @@ def main(argv=None) -> None:
     p.add_argument("--out", default="eval")
     p.add_argument("--register", choices=["タメ口", "敬語"], default="タメ口")
     p.set_defaults(func=cmd_cases)
+
+    p = sub.add_parser("eval", help="過去ゲームを途中まで再生してモデルに回し、実際の発言と並べる(所要時間・票の集計つき)")
+    p.add_argument("--game", action="append", required=True, help="ゲーム名:再現する話者の記号(例 log08:A)。何度でも指定できる")
+    p.add_argument("--me", help="--game に話者を書かなかったときの話者")
+    p.add_argument("--k", type=int, default=3, help="1ゲームあたりのケース数")
+    p.add_argument("--min-before", type=int, default=6, help="切れ目の前に、この件数以上の発言があるものだけ使う(0なら序盤も)")
+    p.add_argument("--out", default="eval")
+    p.add_argument("--register", choices=["タメ口", "敬語"], default="タメ口")
+    add_model_options(p)
+    p.set_defaults(func=cmd_eval)
 
     p = sub.add_parser("score", help="出力を実際の発言と並べる")
     p.add_argument("dir")

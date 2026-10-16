@@ -45,6 +45,16 @@ class Turn:
     warnings: list[str] = field(default_factory=list)
 
 
+def turn_to_dict(turn: Turn) -> dict:
+    """検査を通った分を、出力形式(JSON)の形に戻す。保存や、--json の表示に使う。"""
+    return {
+        "read": turn.read,
+        "posts": [{"reply_to": p.reply_to, "moves": p.moves, "text": p.text} for p in turn.posts],
+        "vote": turn.vote,
+        "silence": turn.silence,
+    }
+
+
 def normalize_text(text: str, me: str | None) -> str:
     text = str(text).replace("\r", "").strip()
     if me:

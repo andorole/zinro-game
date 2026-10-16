@@ -4,6 +4,7 @@
 """
 from __future__ import annotations
 
+import time
 from collections import Counter
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -28,6 +29,7 @@ class Result:
     turn: Turn
     usage: list[dict] = field(default_factory=list)
     attempts: int = 1
+    seconds: float = 0.0  # 呼び出し全体(出し直しと点検を含む)の所要時間
 
 
 def make_context(
@@ -139,6 +141,7 @@ def respond(
     critic: bool = False,
 ) -> Result:
     """検査に落ちた投稿は、理由を添えて出し直させる。critic なら、通った案をもう一度点検させる(通らなければ元の案)。"""
+    started = time.monotonic()
     messages = [{"role": "user", "content": user_message(table, remaining, register, memory)}]
     usage: list[dict] = []
 
@@ -177,4 +180,4 @@ def respond(
         attempts += 1
         if revised.posts and not revised.problems:
             turn = revised
-    return Result(turn, usage, attempts)
+    return Result(turn, usage, attempts, time.monotonic() - started)
