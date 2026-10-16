@@ -43,6 +43,7 @@ def speech_stats(game: dict) -> dict:
 
     total = sum(len(s["lengths"]) for s in speakers.values())
     total_chars = sum(sum(s["lengths"]) for s in speakers.values())
+    minutes = discussion_minutes(game)
     summary = {}
     for who, s in speakers.items():
         lengths = s.pop("lengths")
@@ -52,6 +53,7 @@ def speech_stats(game: dict) -> dict:
             "share": round(len(lengths) / total, 2),
             "chars_total": sum(lengths),
             "chars_share": round(sum(lengths) / total_chars, 2),
+            **({"chars_per_minute": round(sum(lengths) / minutes, 1)} if minutes else {}),
             "chars_mean": round(sum(lengths) / len(lengths), 1),
             "chars_median": median(lengths),
             "chars_max": max(lengths),
@@ -67,9 +69,10 @@ def speech_stats(game: dict) -> dict:
         "extension_seconds": game.get("extension_seconds", 0),
         "speakers": summary,
     }
-    if minutes := discussion_minutes(game):
+    if minutes:
         result["minutes"] = round(minutes, 1)
         result["chars_per_minute"] = round(total_chars / minutes, 1)
+        result["messages_per_minute"] = round(total / minutes, 1)
     return result
 
 
@@ -78,9 +81,14 @@ def format_stats(stats: dict) -> str:
         f"game {stats['game_id']}: 発言 {stats['speech_messages']} 件 / {stats['chars_total']} 字"
         f" / 延長 {stats['extension_seconds']} 秒"
     )
+    columns = list(COLUMNS)
     if "minutes" in stats:
-        header += f" / 議論 {stats['minutes']} 分 → {stats['chars_per_minute']} 字/分"
-    lines = [header, "speaker\t" + "\t".join(COLUMNS)]
+        header += (
+            f" / 議論 {stats['minutes']} 分 → {stats['chars_per_minute']} 字/分,"
+            f" {stats['messages_per_minute']} 件/分"
+        )
+        columns.append("chars_per_minute")
+    lines = [header, "speaker\t" + "\t".join(columns)]
     for who, s in sorted(stats["speakers"].items()):
-        lines.append(who + "\t" + "\t".join(str(s[c]) for c in COLUMNS))
+        lines.append(who + "\t" + "\t".join(str(s[c]) for c in columns))
     return "\n".join(lines)

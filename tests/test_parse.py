@@ -134,6 +134,10 @@ class StatsTest(unittest.TestCase):
         stats = speech_stats(anonymize(game, build_mapping(game)))
         self.assertEqual(stats["minutes"], 4.0)  # (150秒 × 1日 + 延長90秒) / 60
         self.assertEqual(stats["chars_per_minute"], round(stats["chars_total"] / 4.0, 1))
+        self.assertEqual(stats["messages_per_minute"], round(stats["speech_messages"] / 4.0, 1))
+        self.assertEqual(
+            stats["speakers"]["A"]["chars_per_minute"], round(stats["speakers"]["A"]["chars_total"] / 4.0, 1)
+        )
 
 
 if __name__ == "__main__":
