@@ -16,8 +16,11 @@ SAMPLE = """\
 カレン→GM: 投票@カレン→ボブ
 ボブ→GM: 投票@ボブ→カレン
 アリス→GM: 投票@アリス→カレン
+カレン→カレン: 結論は変わらない
 鯖: 投票時間になりました。話すのをやめてください。
 カレン: アリス: 本当ですか？
+ミラ→霊界: 見てます
+↑ここを読んでいる
 ボブ: それは違うと思います。
 続きの行です。
 アリス: おはようございます。ボビーさん、カレンさんもよろしく
@@ -68,6 +71,13 @@ class ParseTest(unittest.TestCase):
     def test_colon_inside_speech_text(self):
         self.assertEqual(self.speech("カレン")[0]["text"], "アリス: 本当ですか？")
 
+    def test_spirit_and_self_lines_are_not_speech(self):
+        spirit = next(e for e in self.events if e["kind"] == "spirit")
+        self.assertEqual((spirit["speaker"], spirit["text"]), ("ミラ", "見てます\n↑ここを読んでいる"))
+        self.assertEqual(next(e for e in self.events if e["kind"] == "self")["speaker"], "カレン")
+        self.assertEqual(len([e for e in self.events if e["kind"] == "speech"]), 3)
+        self.assertEqual(self.speech("カレン")[0]["text"], "アリス: 本当ですか？")
+
     def test_phase_and_day(self):
         by_text = {e["text"]: e for e in self.events}
         night = by_text["夜になりました…役職の人は能力を実行してください"]
@@ -97,12 +107,15 @@ class AnonymizeTest(unittest.TestCase):
         self.anonymized = anonymize(self.game, self.mapping, {"ボビー": "ボブ"})
 
     def test_mapping_follows_speaking_order_and_skips_dummy(self):
-        self.assertEqual(self.mapping, {"アリス": "A", "ボブ": "B", "カレン": "C"})
-        self.assertEqual(build_mapping(self.game, {"カレン": "A"}), {"カレン": "A", "アリス": "B", "ボブ": "C"})
+        self.assertEqual(self.mapping, {"アリス": "A", "ボブ": "B", "カレン": "C", "ミラ": "O1"})
+        self.assertEqual(
+            build_mapping(self.game, {"カレン": "A"}),
+            {"カレン": "A", "アリス": "B", "ボブ": "C", "ミラ": "O1"},
+        )
 
     def test_names_are_replaced_everywhere(self):
         dumped = json.dumps(self.anonymized, ensure_ascii=False)
-        for name in ("アリス", "ボブ", "カレン", "ボビー"):
+        for name in ("アリス", "ボブ", "カレン", "ボビー", "ミラ"):
             self.assertNotIn(name, dumped)
         greeting = next(e for e in self.anonymized["events"] if e["speaker"] == "A" and e["kind"] == "speech")
         self.assertEqual(greeting["text"], "おはようございます。《B》さん、《C》さんもよろしく")

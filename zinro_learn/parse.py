@@ -12,9 +12,8 @@ from dataclasses import dataclass
 SEP = r"[:：]\s?"
 ROLE_NOTICE = re.compile(rf"^鯖→(?P<name>[^:：]+?){SEP}あなたは【(?P<role>[^】]+)】です$")
 ROLE_TEXT = re.compile(r"^あなたは【(?P<role>[^】]+)】です$")
-PRIVATE = re.compile(rf"^鯖→(?P<to>[^:：]+?){SEP}(?P<text>.*)$")
 SYSTEM = re.compile(rf"^鯖{SEP}(?P<text>.*)$")
-COMMAND = re.compile(rf"^(?P<who>[^:：→]+)→GM{SEP}(?P<text>.*)$")
+DIRECTED = re.compile(rf"^(?P<src>[^:：→]+)→(?P<dst>[^:：→]+?){SEP}(?P<text>.*)$")
 COMMAND_BODY = re.compile(r"^(?P<action>[^@]+)@(?P<actor>[^→]+)→(?P<target>.+)$")
 VOTE_LINE = re.compile(r"^(?P<player>.+?)\((?P<received>\d+)票\)の投票先→(?P<voted_for>.+)$")
 EXECUTED = re.compile(r"投票の結果【(?P<name>[^】]+)】さんが処刑されます")
@@ -27,10 +26,23 @@ DUMMY = "初日犠牲者"
 
 @dataclass
 class Message:
-    kind: str  # system / private / command / speech
+    kind: str  # system / private / command / speech / spirit / self / directed
     text: str
     speaker: str | None = None
     to: str | None = None
+
+
+def directed(src: str, dst: str, text: str) -> Message:
+    """「送り手→宛先: 本文」の行。宛先で種類が決まる(霊界は死者・観戦者のチャット)。"""
+    if src == "鯖":
+        return Message("private", text, to=dst)
+    if dst == "GM":
+        return Message("command", text, speaker=src)
+    if dst == "霊界":
+        return Message("spirit", text, speaker=src)
+    if dst == src:
+        return Message("self", text, speaker=src)
+    return Message("directed", text, speaker=src, to=dst)
 
 
 def collect_roles(lines: list[str]) -> dict[str, str]:
@@ -48,12 +60,10 @@ def split_messages(lines: list[str], names: set[str]) -> list[Message]:
         speech = re.compile(rf"^(?P<name>{alternatives}){SEP}(?P<text>.*)$")
     messages: list[Message] = []
     for line in lines:
-        if m := PRIVATE.match(line):
-            messages.append(Message("private", m["text"], to=m["to"]))
+        if m := DIRECTED.match(line):
+            messages.append(directed(m["src"], m["dst"], m["text"]))
         elif m := SYSTEM.match(line):
             messages.append(Message("system", m["text"]))
-        elif m := COMMAND.match(line):
-            messages.append(Message("command", m["text"], speaker=m["who"]))
         elif speech and (m := speech.match(line)):
             messages.append(Message("speech", m["text"], speaker=m["name"]))
         elif messages:
@@ -188,13 +198,26 @@ def speaking_order(game: dict) -> list[str]:
     return seen
 
 
+def observer_names(game: dict) -> list[str]:
+    """プレイヤー以外で書き込んだ人(霊界で話す観戦者など)。"""
+    roles = {info["role"] for info in game["players"].values()}
+    seen: list[str] = []
+    for e in game["events"]:
+        name = e["speaker"]
+        if name and name not in game["players"] and name not in roles and name not in seen:
+            seen.append(name)
+    return seen
+
+
 def build_mapping(game: dict, explicit: dict[str, str] | None = None) -> dict[str, str]:
-    """実名 → A, B, C...。指定のない人は発言順に空いている文字を割り当てる。ダミーは対象外。"""
+    """実名 → A, B, C...(プレイヤー)、O1, O2...(観戦者など)。指定のない人は順に割り当てる。ダミーは対象外。"""
     mapping = dict(explicit or {})
     free = (c for c in string.ascii_uppercase if c not in mapping.values())
     for name in [*speaking_order(game), *game["players"]]:
         if name != DUMMY and name not in mapping:
             mapping[name] = next(free)
+    for i, name in enumerate(observer_names(game), 1):
+        mapping.setdefault(name, f"O{i}")
     return mapping
 
 
