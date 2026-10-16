@@ -12,36 +12,40 @@ TABLE = """\
 """
 
 
-def example(number, speaker, role, moves, utterance, seq):
+def example(number, speaker, role, moves, utterance, seq, reply_to=()):
     return {
         "id": f"ex{number:02d}", "game": "g1", "seq": seq, "speaker": speaker, "role": role,
         "tier": {"B": 1, "A": 2}.get(speaker, 3), "register": "タメ口", "phase": "day",
-        "moves": moves, "situation": "場面", "utterance": utterance,
+        "reply_to": list(reply_to), "moves": moves, "situation": "場面", "utterance": utterance,
     }
 
 
 EXAMPLES = [
-    example(1, "B", "村人", ["rebut"], "それは違うと思う。", 2),
-    example(2, "A", "人狼", ["rebut", "probe"], "本当に、そう言い切れますか？", 3),
-    example(3, "C", "村人", ["probe"], "どうして？", 4),
+    example(1, "B", "村人", ["rebut"], "それは違うと思う。", 2, [1]),
+    example(2, "A", "人狼", ["rebut", "probe"], "本当に、そう言い切れますか？", 3, [2]),
+    example(3, "C", "村人", ["probe"], "どうして？", 4, [2, 3]),
 ]
 GAME = {
     "game_id": "g1",
     "players": {"A": {"role": "人狼"}, "B": {"role": "村人"}, "C": {"role": "村人"}},
     "events": [
-        {"seq": seq, "kind": "speech", "speaker": speaker, "phase": "day", "text": "x"}
-        for seq, speaker in ((2, "B"), (3, "A"), (4, "C"))
+        {"seq": 1, "kind": "speech", "speaker": "C", "phase": "day", "text": "x"},
+        *(
+            {"seq": seq, "kind": "speech", "speaker": speaker, "phase": "day", "text": "x"}
+            for seq, speaker in ((2, "B"), (3, "A"), (4, "C"))
+        ),
+        {"seq": 5, "kind": "system", "phase": "day", "text": "x"},
     ],
 }
 
 
-def write_project(root: Path, examples=EXAMPLES, table=TABLE) -> None:
+def write_project(root: Path, examples=EXAMPLES, table=TABLE, game=GAME) -> None:
     (root / "knowledge").mkdir(parents=True)
     rows = "".join(json.dumps(e, ensure_ascii=False) + "\n" for e in examples)
     (root / "knowledge/examples.jsonl").write_text(rows, encoding="utf-8")
     (root / "knowledge/discussion_style.md").write_text(table, encoding="utf-8")
     (root / "logs/normalized").mkdir(parents=True)
-    (root / "logs/normalized/g1.json").write_text(json.dumps(GAME, ensure_ascii=False), encoding="utf-8")
+    (root / "logs/normalized/g1.json").write_text(json.dumps(game, ensure_ascii=False), encoding="utf-8")
 
 
 class SyncTest(unittest.TestCase):
@@ -81,6 +85,31 @@ class CheckTest(unittest.TestCase):
         problems = " / ".join(check(self.root))
         for expected in ("ex01: tier が 2", "ex01: register", "ex01: 説明口調", "ex02: 役職がログと違う", "ex03: 話者がログと違う"):
             self.assertIn(expected, problems)
+
+    def test_reply_to_is_checked_against_the_log(self):
+        late = {**EXAMPLES[2], "id": "ex04", "seq": 6, "speaker": "A", "role": "人狼", "tier": 2, "reply_to": [5]}
+        bad = [
+            {**EXAMPLES[2], "id": "ex01", "reply_to": [3, 2]},  # 昇順でない
+            {**EXAMPLES[1], "id": "ex02", "reply_to": [1, 2, 3, 4, 5]},  # 多すぎる、自分以降もある
+            {**EXAMPLES[2], "id": "ex03", "reply_to": "2"},  # リストでない
+            late,  # seq 5 はシステム通知
+        ]
+        game = {**GAME, "events": [*GAME["events"], {"seq": 6, "kind": "speech", "speaker": "A", "phase": "day", "text": "x"}]}
+        write_project(self.root, examples=bad, table=sync_table(TABLE, bad).replace(PLACEHOLDER, "x"), game=game)
+        problems = " / ".join(check(self.root))
+        for expected in ("ex01: reply_to が昇順", "ex02: reply_to が4件を超えて", "ex02: reply_to の seq 3 が自分",
+                         "ex03: reply_to が整数のリスト", "ex04: reply_to の seq 5 は発言ではない"):
+            self.assertIn(expected, problems)
+
+    def test_reply_to_may_be_empty(self):
+        examples = [{**EXAMPLES[0], "reply_to": []}, *EXAMPLES[1:]]
+        write_project(self.root, examples=examples, table=sync_table(TABLE, examples).replace(PLACEHOLDER, "x"))
+        self.assertEqual(check(self.root), [])
+
+    def test_reply_to_is_required(self):
+        missing = {k: v for k, v in EXAMPLES[0].items() if k != "reply_to"}
+        write_project(self.root, examples=[missing], table=sync_table(TABLE, [missing]).replace(PLACEHOLDER, "x"))
+        self.assertTrue(any("reply_to が整数のリスト" in p for p in check(self.root)))
 
     def test_real_names_and_long_overlap_are_reported(self):
         long_line = "この一文は原文とそっくり同じで長いです。"

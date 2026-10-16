@@ -1,8 +1,8 @@
 """knowledge/ の整合性チェックと、発言の型の表の同期。
 
 発言例(examples.jsonl)を正とし、ガイド(discussion_style.md)の「発言の型」の表の
-「主な話者」「例」の列を作り直す(sync_table)。check は、発言例と正規化ログの突き合わせ、
-表のずれ、実名の混入、冗長・説明口調の語、原文との長い一致を調べる。
+「主な話者」「例」の列を作り直す(sync_table)。check は、発言例と正規化ログの突き合わせ
+(返信先 reply_to を含む)、表のずれ、実名の混入、冗長・説明口調の語、原文との長い一致を調べる。
 ログのない環境では、ログを使うチェックは飛ばす。
 """
 from __future__ import annotations
@@ -18,6 +18,7 @@ TIER_OF = {"B": 1, "A": 2}  # ベース話者 B、次点話者 A。それ以外�
 GROUP = {1: "B", 2: "A", 3: "他"}
 BANNED = ["つまり", "例えば", "たとえば", "ではないでしょうか", "ということです", "という点", "ご自身"]
 OVERLAP_LIMIT = 18  # 原文との逐語一致がこの字数以上なら、言い換え不足とみなす
+MAX_REPLY_TO = 4  # 1つの発言が受ける発言の数の上限(これ以上は絞って付ける)
 PLACEHOLDER = "(要記入)"
 ROW = re.compile(r"^\| (?P<tag>[a-z_]+) \|")
 
@@ -84,6 +85,24 @@ def longest_overlap(text: str, raw: str) -> int:
     return match.size
 
 
+def check_reply_to(ex: dict, game: dict | None) -> list[str]:
+    """reply_to: その発言が受けている発言の seq。空なら話題の開始・挨拶・システム通知への反応。"""
+    name = ex["id"]
+    reply_to = ex.get("reply_to")
+    if not isinstance(reply_to, list) or not all(isinstance(n, int) for n in reply_to):
+        return [f"{name}: reply_to が整数のリストになっていない"]
+    problems = []
+    if reply_to != sorted(set(reply_to)):
+        problems.append(f"{name}: reply_to が昇順・重複なしになっていない")
+    if len(reply_to) > MAX_REPLY_TO:
+        problems.append(f"{name}: reply_to が{MAX_REPLY_TO}件を超えている(主な返信先に絞る)")
+    problems += [f"{name}: reply_to の seq {n} が自分(seq {ex['seq']})以降" for n in reply_to if n >= ex["seq"]]
+    if game is not None:
+        speech = {e["seq"] for e in game["events"] if e["kind"] == "speech"}
+        problems += [f"{name}: reply_to の seq {n} は発言ではない" for n in reply_to if n < ex["seq"] and n not in speech]
+    return problems
+
+
 def check_example(ex: dict, game: dict | None) -> list[str]:
     name = ex["id"]
     problems = []
@@ -95,6 +114,7 @@ def check_example(ex: dict, game: dict | None) -> list[str]:
     if not ex["utterance"].strip() or not ex["situation"].strip():
         problems.append(f"{name}: utterance か situation が空")
     problems += [f"{name}: 説明口調・冗長の語 {word!r} が発言にある" for word in BANNED if word in ex["utterance"]]
+    problems += check_reply_to(ex, game)
     if game is not None:
         event = next((e for e in game["events"] if e["seq"] == ex["seq"]), None)
         if event is None or event["kind"] != "speech":

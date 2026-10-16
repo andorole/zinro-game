@@ -3,6 +3,7 @@
   python -m zinro_learn stats logs/normalized/<id>.json [...]
   python -m zinro_learn sync     # 発言例から、ガイドの「発言の型」の表を作り直す
   python -m zinro_learn check    # knowledge/ の整合性を調べる(問題があれば終了コード 1)
+  python -m zinro_learn structure  # 連投と返信の型(1発言に1返信ではない構造)を数える
 """
 from __future__ import annotations
 
@@ -11,8 +12,9 @@ import json
 from pathlib import Path
 
 from .analyze import format_stats, speech_stats
-from .check import check, load_examples, sync_table
+from .check import check, load_examples, load_games, sync_table
 from .parse import anonymize, build_mapping, parse_game
+from .structure import format_structure
 
 
 def parse_pairs(value: str) -> dict[str, str]:
@@ -60,6 +62,13 @@ def sync(args) -> None:
     print(f"{path}: 発言の型の表を更新した(「(要記入)」の説明は手で書く)")
 
 
+def structure(args) -> None:
+    root = Path(args.root)
+    examples = load_examples(root / "knowledge/examples.jsonl")
+    games = load_games(root, {ex["game"] for ex in examples})
+    print(format_structure(games, examples))
+
+
 def run_check(args) -> None:
     problems = check(Path(args.root))
     for problem in problems:
@@ -91,6 +100,10 @@ def main(argv=None) -> None:
     p = sub.add_parser("sync", help="発言例から、ガイドの「発言の型」の表を作り直す")
     p.add_argument("--root", default=".")
     p.set_defaults(func=sync)
+
+    p = sub.add_parser("structure", help="連投と返信の型を数える")
+    p.add_argument("--root", default=".")
+    p.set_defaults(func=structure)
 
     p = sub.add_parser("check", help="knowledge/ の整合性を調べる")
     p.add_argument("--root", default=".")
