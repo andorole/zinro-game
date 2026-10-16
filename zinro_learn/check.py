@@ -149,7 +149,7 @@ def check_table(table: dict[str, list[str]], summary: dict[str, tuple[Counter, l
 
 def tracked_files(root: Path) -> list[Path]:
     files = [root / "README.md", root / ".gitignore"]
-    for pattern in ("knowledge/*", "zinro_learn/*.py", "zinro_bot/*.py", "tests/*.py", ".claude/skills/*/SKILL.md"):
+    for pattern in ("knowledge/*", "zinro_learn/*.py", "zinro_bot/*.py", "zinro_bot/*.html", "tests/*.py", ".claude/skills/*/SKILL.md"):
         files += sorted(root.glob(pattern))
     return [path for path in files if path.is_file()]
 

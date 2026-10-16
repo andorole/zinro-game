@@ -156,6 +156,28 @@ CHAT_FORMAT = """## 11. 出力形式
 """
 
 
+# 練習部屋(ブラウザ)用。発言は、そのままチャットに出る。1行に1 JSON で、ストリームで届いた順に出せるようにする
+TIMED_FORMAT = """## 11. 出力形式(練習部屋)
+
+あなたの発言は、そのままチャットに表示される。出力は、1行に1つの JSON オブジェクトだけを並べる。前後に文章、見出し、コードフェンスを付けない。
+
+{"read":"本命:〇〇6 対抗:△△4 / 変える材料:… / 狙い:…","vote":null}
+{"at":2,"to":[12],"text":"チャットに出す発言"}
+{"at":9,"to":[],"text":"もう1件"}
+
+- 1行目は read。誰が何を言い、誰を疑っているか。本命と対抗(数字つき)、本命を変える材料、このターンの狙いを、80字以内で書く。チャットには出ない。vote は、現時点の票先の名前(まだなら null)。
+- 発言は0〜4行。1行が1件。量の目安は、25秒あたり、雑談なら0〜2件・合計5〜40字、議論が動いているなら1〜3件・合計40〜150字(B・A は、議論が動いているとき1分で120〜175字)。毎回最大まで出さない。
+- at: いまから何秒後に出すか(0から、状況で指定された秒数まで)。連投は 1〜3 秒間隔でよい。長い発言は打つ時間がかかるので、前の発言から空ける。
+- to: 受けている発言の番号(#N の N)。なければ []。最大4件、昇順。
+- text: チャットにそのまま出す文。名前の欄(「名前:」)は付けない。改行は論点を分けるときだけ。内部の番号(#12 など)や出力形式の説明を入れない。1件 200字以内。
+- 今は書かないほうがよいときは、発言の行を書かず、{"silence":"理由"} を1行だけ出す。
+- この間に他の人が話す内容は、まだ見えない。先走って結論を固めず、次の呼び出しで見て直せるように書く。
+"""
+
+# 練習部屋では、発言は人間が貼るのではなく、そのまま表示される
+ROOM_LINE = ("- 投稿するのは人間。あなたの出力は、そのまま貼れる発言の案。", "- ここは練習部屋。あなたの発言は、そのままチャットに表示される。")
+
+
 def fill(text: str, me: str | None, role: str | None, register: str) -> str:
     return text.replace("{me}", me or ME_UNSET).replace("{role}", role or ROLE_UNSET).replace("{register}", register)
 
@@ -170,11 +192,15 @@ def build_system(
     output_format: str = "json",
 ) -> list[dict]:
     """APIの system に渡すブロック。前の2つはキャッシュする(ゲーム中は変わらない)。
-    output_format は json(API の tool 用)か chat(Claude のチャットやプロジェクトに貼る用。読める形で返させる)。"""
+    output_format は json(API の tool 用)、chat(Claude のチャットやプロジェクトに貼る用。読める形で返させる)、
+    timed(練習部屋用。1行1 JSON の、時刻つきの発言)。"""
     knowledge = Path(root) / "knowledge"
     instructions = (knowledge / "bot_prompt.md").read_text(encoding="utf-8")
     if output_format == "chat":
         instructions = instructions[: instructions.index(FORMAT_HEADING)] + CHAT_FORMAT
+    elif output_format == "timed":
+        instructions = instructions[: instructions.index(FORMAT_HEADING)] + TIMED_FORMAT
+        instructions = instructions.replace(*ROOM_LINE)
     instructions = fill(instructions, me, role, register)
     style = (knowledge / "discussion_style.md").read_text(encoding="utf-8")
     reference = "\n".join(

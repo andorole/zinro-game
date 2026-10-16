@@ -4,6 +4,7 @@
   python -m zinro_bot reply ログ.txt --me 名前 --role 人狼    # 貼ったログを読んで、次の発言の案を出す(要 ANTHROPIC_API_KEY)
   pbpaste | python -m zinro_bot reply - --me 名前             # 標準入力から読む
   python -m zinro_bot chat --me ボット --role 村人 --players あなた,相手   # 手元で会話して試す(所要秒つき)
+  python -m zinro_bot room --out room.html                    # 練習部屋(ブラウザ)のページを作る。Claude の Artifact として開くと、キーなしで会話できる
   python -m zinro_bot eval --game log08:A --game log10:B --k 3   # 過去ゲームを途中まで再生して、モデルに回し、実際の発言と並べる(所要秒・票の集計つき)
   python -m zinro_bot cases --game log08 --me B --out eval    # 評価用のケースだけ作る(出力は別のモデルや人が置く場合)
   python -m zinro_bot score eval                              # eval/out/ の出力を、実際の発言と並べる
@@ -20,6 +21,7 @@ from .engine import Result, make_context, make_memory, respond
 from .llm import AnthropicClient, ApiError, ScriptedClient, load_env
 from .prompt import as_text, build_system
 from .replay import run_cases, score_case, summarize, write_cases
+from .room import build_room
 from .transcript import Table, parse_table, render
 from .validate import build_turn, turn_to_dict
 
@@ -230,6 +232,12 @@ def cmd_cases(args) -> None:
     print(f"{args.out}/in/ のファイルをモデルに見せ、出力を {args.out}/out/<ケース名>.json に置いてから score を実行する")
 
 
+def cmd_room(args) -> None:
+    html = build_room(Path(args.root))
+    Path(args.out).write_text(html, encoding="utf-8")
+    print(f"{args.out}: {len(html)}字")
+
+
 def cmd_eval(args) -> None:
     """過去ゲームを途中まで再生してモデルに回し、実際の発言と並べる。--game は、ゲーム名:話者(例 log08:A)で何度でも指定できる。"""
     root, out = Path(args.root), Path(args.out)
@@ -326,6 +334,10 @@ def main(argv=None) -> None:
     p.add_argument("--out", default="eval")
     p.add_argument("--register", choices=["タメ口", "敬語"], default="タメ口")
     p.set_defaults(func=cmd_cases)
+
+    p = sub.add_parser("room", help="練習部屋(ブラウザで動くページ)を作る")
+    p.add_argument("--out", default="room.html")
+    p.set_defaults(func=cmd_room)
 
     p = sub.add_parser("eval", help="過去ゲームを途中まで再生してモデルに回し、実際の発言と並べる(所要時間・票の集計つき)")
     p.add_argument("--game", action="append", required=True, help="ゲーム名:再現する話者の記号(例 log08:A)。何度でも指定できる")
