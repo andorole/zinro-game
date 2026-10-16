@@ -142,3 +142,25 @@ class MemoryTest(unittest.TestCase):
         self.assertEqual(memory_text({**memory, "me": "別人"}, table), "")
         self.assertEqual(memory_text({**memory, "posts_seen": 99}, table), "")
         self.assertEqual(memory_text(None, table), "")
+
+
+class CriticTest(unittest.TestCase):
+    def test_critic_replaces_the_draft_when_the_revision_is_valid(self):
+        client = llm.ScriptedClient([good("下書き"), good("直した案")])
+        result = respond(client, CTX, parse_table(LOG), critic=True)
+        self.assertEqual([p.text for p in result.turn.posts], ["直した案"])
+        self.assertEqual(result.attempts, 2)
+        _, messages = client.calls[1]
+        self.assertEqual(messages[-1]["content"][0]["type"], "tool_result")
+        self.assertNotIn("is_error", messages[-1]["content"][0])
+        self.assertIn("点検", messages[-1]["content"][0]["content"])
+
+    def test_critic_keeps_the_draft_when_the_revision_fails(self):
+        client = llm.ScriptedClient([good("下書き"), good("つまり直した")])
+        result = respond(client, CTX, parse_table(LOG), critic=True)
+        self.assertEqual([p.text for p in result.turn.posts], ["下書き"])
+
+    def test_no_critic_call_when_nothing_to_post(self):
+        client = llm.ScriptedClient([{"read": {}, "posts": [], "vote": None, "silence": "材料がない"}])
+        respond(client, CTX, parse_table(LOG), critic=True)
+        self.assertEqual(len(client.calls), 1)

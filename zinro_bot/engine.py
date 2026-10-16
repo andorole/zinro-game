@@ -120,10 +120,29 @@ def feedback(turn: Turn) -> str:
     return "\n".join(lines)
 
 
-def respond(client, ctx: Context, table: Table, remaining: int | None = None, register: str = "タメ口", max_retries: int = 2, memory: dict | None = None) -> Result:
+CRITIC_NOTE = """提出した案を、次の観点で点検して、直した最終案を同じ形式で出し直す。直す必要がなければ、そのまま出し直す。
+1. ログにない発言を、あったことにしていないか。発言者の取り違え、引用の間違いはないか。
+2. 自分の過去の発言(口調、立場、票先の見込み、条件つきの宣言)と矛盾していないか。
+3. 役職の漏れ(人狼のとき)や、もう一人の村人との不要な対立はないか。
+4. すでに誰かが言ったことの繰り返しや、新しい材料のない発言がないか。件数と長さは局面に合っているか(雑談なら1件・短く)。
+5. 説明口調、冗長、方言、箇条書きがないか。"""
+
+
+def respond(
+    client,
+    ctx: Context,
+    table: Table,
+    remaining: int | None = None,
+    register: str = "タメ口",
+    max_retries: int = 2,
+    memory: dict | None = None,
+    critic: bool = False,
+) -> Result:
+    """検査に落ちた投稿は、理由を添えて出し直させる。critic なら、通った案をもう一度点検させる(通らなければ元の案)。"""
     messages = [{"role": "user", "content": user_message(table, remaining, register, memory)}]
     usage: list[dict] = []
-    for attempt in range(1, max_retries + 2):
+
+    def ask() -> tuple[object, Turn]:
         reply = client.complete(ctx.system, messages)
         usage.append(reply.usage)
         turn = build_turn(
@@ -134,14 +153,28 @@ def respond(client, ctx: Context, table: Table, remaining: int | None = None, re
             known_moves=ctx.known_moves,
             examples=ctx.examples,
         )
-        if not turn.problems or attempt > max_retries:
-            return Result(turn, usage, attempt)
-        # 直させる: assistant の提出を戻し、理由を返す(tool を使わない応答なら、文章で返す)
-        note = feedback(turn)
+        return reply, turn
+
+    def append(reply, note: str, is_error: bool) -> None:
         messages.append({"role": "assistant", "content": reply.content})
         if reply.tool_use_id:
-            result = {"type": "tool_result", "tool_use_id": reply.tool_use_id, "content": note, "is_error": True}
+            result = {"type": "tool_result", "tool_use_id": reply.tool_use_id, "content": note}
+            if is_error:
+                result["is_error"] = True
             messages.append({"role": "user", "content": [result]})
         else:
             messages.append({"role": "user", "content": note})
-    raise AssertionError("到達しない")
+
+    attempts = 0
+    for attempts in range(1, max_retries + 2):
+        reply, turn = ask()
+        if not turn.problems or attempts > max_retries:
+            break
+        append(reply, feedback(turn), True)  # 直させる(tool を使わない応答なら、文章で返す)
+    if critic and turn.posts and not turn.problems:
+        append(reply, CRITIC_NOTE, False)
+        _, revised = ask()
+        attempts += 1
+        if revised.posts and not revised.problems:
+            turn = revised
+    return Result(turn, usage, attempts)

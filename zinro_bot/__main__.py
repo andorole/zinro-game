@@ -130,7 +130,7 @@ def cmd_reply(args) -> None:
         print(f"システムプロンプト: {sum(len(b['text']) for b in ctx.system)}字 / 発言{len(table.posts)}件 / 自分: {table.me} ({table.role}) / 局面: {table.phase}")
         return
     try:
-        result = respond(make_client(args, table), ctx, table, args.remaining, args.register, args.retries, load_memory(root, args.session))
+        result = respond(make_client(args, table), ctx, table, args.remaining, args.register, args.retries, load_memory(root, args.session), args.critic)
     except ApiError as exc:
         raise SystemExit(f"エラー: {exc}") from exc
     save_memory(root, args.session, table, result)
@@ -181,7 +181,7 @@ def cmd_chat(args) -> None:
             continue
         table = parse_table("\n".join(lines), args.me, args.role, players + [args.me], "oldest-first")
         try:
-            result = respond(make_client(args, table), ctx, table, None, args.register, args.retries, memory)
+            result = respond(make_client(args, table), ctx, table, None, args.register, args.retries, memory, args.critic)
         except ApiError as exc:
             print(f"エラー: {exc}")
             continue
@@ -212,6 +212,7 @@ def add_model_options(p) -> None:
     p.add_argument("--thinking", type=int, help="考えさせるトークン数の上限(指定すると、tool の強制をやめて考えさせる)")
     p.add_argument("--fake", action="store_true", help="モデルを呼ばず、定型応答で流れだけ確認する")
     p.add_argument("--retries", type=int, default=2, help="検査に落ちたとき、出し直させる回数")
+    p.add_argument("--critic", action="store_true", help="通った案を、もう一度点検させる(呼び出しが1回増える。取り違え・矛盾・繰り返しを減らす)")
 
 
 def main(argv=None) -> None:
