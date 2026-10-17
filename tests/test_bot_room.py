@@ -6,7 +6,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from zinro_bot.prompt import TIMED_FORMAT, build_system
+from zinro_bot.prompt import TIMED_FORMAT, as_text, build_system
 from zinro_bot.room import MARKER, ROLES, build_prompts, build_room, casual_prompt
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -47,7 +47,11 @@ class RoomTest(unittest.TestCase):
 
     def test_the_strong_prompt_keeps_the_knowledge_and_drops_the_paste_flow(self):
         strong = embedded(self.html)["strong"]["村人"]
-        self.assertIn("結論の出し方(両論で止めない)", strong)  # 両論で止めない規則
+        self.assertIn("両論で止めない", strong)  # 両論で止めず、吊り先は終盤まで出さない
+        self.assertIn("「誰が狼か」の結論と、吊り先は、終盤", strong)
+        self.assertIn("挨拶は、ゲームが始まったらすぐ、最初に言う", strong)  # 遅れて挨拶しない
+        self.assertNotIn("雑談と議論の切り替え、", strong)
+        self.assertNotIn("雑談が10件以上続いて", strong)  # 雑談から議論への切り替えを求めない
         self.assertIn("# 発言例", strong)
         self.assertIn("ここは練習部屋。あなたの発言は、そのままチャットに表示される。", strong)
         self.assertNotIn("投稿するのは人間", strong)
@@ -63,6 +67,11 @@ class RoomTest(unittest.TestCase):
         self.assertIn(TIMED_FORMAT.splitlines()[0], timed)
         self.assertNotIn("練習部屋", plain.split("# 型の一覧")[0].split("## 11.")[-1])
         self.assertIn('"silence"', plain)
+
+    def test_the_room_shows_more_conversational_examples(self):
+        plain = as_text(build_system(ROOT, "{me}", "村人", "{register}", output_format="timed"))
+        room = embedded(self.html)["strong"]["村人"]
+        self.assertGreater(len(room), len(plain))
 
     def test_casual_prompt_fills_the_role_only(self):
         text = casual_prompt("人狼")

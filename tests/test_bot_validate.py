@@ -38,10 +38,13 @@ class CheckTextTest(unittest.TestCase):
         self.assertTrue(self.problems("#3 の発言について"))
 
     def test_length_and_lines(self):
-        self.assertTrue(self.problems("あ" * 241))
-        self.assertEqual(check_text("あ" * 210, EXAMPLES)[0], [])
-        self.assertTrue(any("長め" in w for w in check_text("あ" * 210, EXAMPLES)[1]))
-        self.assertTrue(self.problems("\n".join(["行"] * 6)))
+        # 意味の通る長文は許す。上限は、暴走の歯止めとして置いてある
+        self.assertTrue(self.problems("あ" * 601))
+        self.assertEqual(check_text("あ" * 210, EXAMPLES), ([], []))
+        self.assertEqual(check_text("あ" * 400, EXAMPLES)[0], [])
+        self.assertTrue(any("長め" in w for w in check_text("あ" * 450, EXAMPLES)[1]))
+        self.assertTrue(self.problems("\n".join(["行"] * 9)))
+        self.assertEqual(check_text("\n".join(["行"] * 8), EXAMPLES)[0], [])
 
     def test_claiming_to_be_wolf_and_copying_examples_are_rejected(self):
         self.assertTrue(self.problems("自分は人狼です。"))

@@ -20,9 +20,9 @@ MARKUP = re.compile(r"(\*\*|`{1,3}|^#{1,6}\s)", re.M)
 INTERNAL_REF = re.compile(r"#\d+")
 SELF_AS_WOLF = re.compile(r"(自分|私|俺|僕|オレ|ぼく)は(人狼|狼)(です|だ|だよ|なの|だぞ)")
 
-MAX_CHARS = 240
-SOFT_CHARS = 200
-MAX_LINES = 5
+MAX_CHARS = 600
+SOFT_CHARS = 400
+MAX_LINES = 8
 MAX_POSTS = 4
 MAX_MOVES = 3
 

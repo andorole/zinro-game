@@ -70,8 +70,7 @@ def hints(table: Table) -> str:
         lines.append("- 問いを含む発言(最後の発言以降): " + "、".join(f"#{n}" for n in asked))
     recent = table.posts[-8:]
     mean = sum(len(p.text) for p in recent) / len(recent)
-    kind = "雑談の長さ" if mean <= 20 else "議論の長さ"
-    lines.append(f"- 直近{len(recent)}件の平均は{mean:.0f}字({kind}。雑談は20字以下、議論は30字以上が目安)。発言は全部で{len(table.posts)}件")
+    lines.append(f"- 直近{len(recent)}件の平均は{mean:.0f}字。部屋のテンポは、これに合わせる(短いやりとりなら1件・短く、書き合いが長ければ長く)。発言は全部で{len(table.posts)}件")
     if mine:
         lines.append("- 自分の直近の発言(口調・立場・冗談の続きとして書く): " + " / ".join(f"#{p.seq}「{p.text.splitlines()[0][:40]}」" for p in mine[-3:]))
     chars = Counter()

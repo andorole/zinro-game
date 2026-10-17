@@ -114,7 +114,7 @@ textarea.fb { width: 100%; height: 120px; margin-top: 8px; font: 12px/1.5 var(--
 <div id="app">
   <header>
     <h1>4A練習ルーム</h1>
-    <p class="sub">人狼1・村人2+初日犠牲者(ダミー)。AI 2人を相手に、議論を最大300秒、25秒きざみで選んで話し、投票する。</p>
+    <p class="sub">人狼1・村人2+初日犠牲者(ダミー)。AI 2人を相手に、議論の長さを25秒きざみ(最大300秒)で選んで話し、投票する。</p>
   </header>
 
   <section id="setup" class="card" aria-labelledby="setupH">
@@ -127,7 +127,7 @@ textarea.fb { width: 100%; height: 120px; margin-top: 8px; font: 12px/1.5 var(--
     <div class="field">
       <label for="dur">議論の長さ</label>
       <div class="dur"><input id="dur" type="range" min="25" max="300" step="25" value="100"><output id="durOut" for="dur">100秒</output></div>
-      <p class="hint">25秒きざみ。本戦の議論は300秒(延長なし)。AI は25秒ぶんずつ先まで書き、あなたが発言すると書き直す。</p>
+      <p class="hint">25秒きざみ。本戦の議論は300秒(延長なし)。AI は、新しい発言を見るたびに、短く返す。</p>
     </div>
     <div class="grid2">
       <div class="field"><label for="uname">あなたの名前</label><input id="uname" type="text" value="アキラ" maxlength="8" autocomplete="off"></div>
@@ -153,8 +153,8 @@ textarea.fb { width: 100%; height: 120px; margin-top: 8px; font: 12px/1.5 var(--
       <div class="field"><label for="speed">AI の打鍵速度</label>
         <select id="speed">
           <option value="5">ふつう(5字/秒)</option>
-          <option value="9" selected>速い(9字/秒)</option>
-          <option value="16">人外(16字/秒)</option>
+          <option value="9">速い(9字/秒)</option>
+          <option value="16" selected>人外(16字/秒)</option>
         </select>
       </div>
       <div class="field"><label for="reg">語調</label>
@@ -162,7 +162,7 @@ textarea.fb { width: 100%; height: 120px; margin-top: 8px; font: 12px/1.5 var(--
       </div>
     </div>
     <div class="actions"><button id="startBtn" class="primary" type="button" disabled>開始</button><span id="conn" class="hint" role="status">Claude への接続を確認しています…</span></div>
-    <p class="hint">Claude の利用枠を使います(議論の長さにより、AI の呼び出しが数十回)。初回は許可の確認が出ます。打鍵速度は、このページが表示を遅らせる設定で、モデルの速さではありません。</p>
+    <p class="hint">Claude の利用枠を使います(AI は発言のたびに呼ぶので、「速い」で300秒なら100回前後になることがあります)。初回は許可の確認が出ます。打鍵速度は、このページが表示を遅らせる設定で、モデルの速さではありません(長い発言は、貼る扱いで、遅れは最大3秒)。</p>
   </section>
 
   <section id="room" class="card" aria-label="議論" hidden>
@@ -208,16 +208,27 @@ textarea.fb { width: 100%; height: 120px; margin-top: 8px; font: 12px/1.5 var(--
 'use strict';
 
 /* ---------- 定数 ---------- */
-const CHUNK = 25;                      // AI が1回の呼び出しで書く長さ(秒)
+const HORIZON = 8;                     // AI が1回の呼び出しで書く長さ(秒)。短くして、新しい発言に返せるようにする
 const TICK_MS = 200;
-const DEBOUNCE = 1.2;                  // あなたの発言のあと、続けて打つのを待つ秒数
-const MAX_WAIT = 4;                    // 打ち続けていても、これ以上は待たない
-const FAST_CALL = 6;                   // 呼び出しの経過がこれ未満なら、あなたの発言を見せるため中断して作り直す
-const MIN_GAP_USER = 2;                // あなたの発言への作り直しの最短間隔(秒)
-const MIN_GAP_FREE = 6;                // 自発的な呼び出しの最短間隔(秒)
-const MIN_GAP_CALLED = 3;              // 名前を呼ばれたときの最短間隔(秒)
-const LEAD = 3;                        // 予定の発言が尽きる何秒前から、次を頼むか
+const DEBOUNCE = { user: 0.5, ai: 1.0 };   // 新しい発言のあと、続けて来るのを待つ秒数(あなたの発言と名前の呼びかけは短く)
+const MAX_WAIT = 2.5;                  // 発言が続いていても、これ以上は待たない
+const FAST_CALL = 6;                   // まだ発言を出していない呼び出しで、経過がこれ未満なら、新しい発言を見せるため中断して作り直す
+const YOUNG_CALL = 3;                  // あなたの発言・名前の呼びかけのときは、発言を出し始めていても、経過がこれ未満なら作り直す
+const MAX_ABORTS = 2;                  // 続けて中断してよい回数。これを超えたら、終わるのを待つ(返事が出なくなるのを防ぐ)
+const MIN_GAP = { user: 0.8, ai: 2.5 };  // 前の呼び出しからの最短間隔(秒)。あなたの発言と名前の呼びかけは短く、AI どうしは長く
+const QUIET_GAP = { strong: 6, casual: 9 };   // 誰も話さないとき、自分から話す間隔(秒)
 const THINK = 0.5;                     // 打ち始めるまでの間(秒)
+const TYPE_CAP = 3;                    // 打つ時間の上限(秒)。長い発言は、打たずに貼る人もいるので、遅れを3秒までにする
+const OPENERS = {                      // ゲームが始まったらすぐ言う最初の発言。モデルを待たない。挨拶だけが多く、たまに軽い一言を足す
+  strong: {
+    'タメ口': ['おはよう', 'おはよう', 'おはよう', 'おはよう', 'おはよー', 'おはよう。よろしく', 'おはよう。朝一って毎回どう始めるか迷う', 'おはよう。眠い', 'おはよう。今日は平和にいこう'],
+    '敬語': ['おはようございます', 'おはようございます', 'おはようございます', 'おはようございます。よろしくお願いします', 'おはようございます。朝一はいつも迷いますね'],
+  },
+  casual: {
+    'タメ口': ['おは', 'おは', 'おは', 'おはよう', 'おはよー', 'おはよ〜', 'おは。ねむ'],
+    '敬語': ['おはようございます', 'おはようございます', 'おはようございます。'],
+  },
+};
 const BAN = /つまり|例えば|たとえば|ではないでしょうか|ということです|という点|ご自身/;
 const SETTINGS_KEY = 'room4a-settings';
 const PROMPTS = JSON.parse(document.getElementById('prompts').textContent);
@@ -244,7 +255,7 @@ const S = {
   phase: 'setup', sample: null, demo: false, ready: false,
   cfg: null, t0: 0, duration: 100, user: 'アキラ',
   posts: [], nextId: 1, agents: [], timer: null, calls: [], seq: 0,
-  votes: {}, flags: { ban: 0, long: 0 }, warmMs: null, userVote: null, finished: false,
+  votes: {}, flags: { ban: 0 }, warmMs: null, userVote: null, finished: false,
 };
 const NAME = { strong: 'ブン', casual: 'シン' };
 const TIER_JA = { quick: '速い', default: '標準', complex: '高精度' };
@@ -317,7 +328,7 @@ function situation(a, t, horizon) {
   }
   return head.concat(body).join('\n');
 }
-function hints(a, t) {
+function hints(a, t, fresh) {
   const lines = ['# 機械的に拾ったメモ(参考。判断はあなたがする)'];
   if (!S.posts.length) { lines.push('- まだ誰も発言していない。挨拶と、短い冗談か最初の話題から入る'); return lines.join('\n'); }
   const me = a.name;
@@ -331,7 +342,12 @@ function hints(a, t) {
   if (asked.length) lines.push('- 問いを含む発言(最後の発言以降): ' + asked.join('、'));
   const recent = S.posts.slice(-8);
   const mean = recent.reduce((s, p) => s + len(p.text), 0) / recent.length;
-  lines.push('- 直近' + recent.length + '件の平均は' + Math.round(mean) + '字(' + (mean <= 20 ? '雑談の長さ' : '議論の長さ') + '。雑談は20字以下、議論は30字以上が目安)。発言は全部で' + S.posts.length + '件');
+  lines.push('- 直近' + recent.length + '件の平均は' + Math.round(mean) + '字。部屋のテンポは、これに合わせる(短いやりとりなら1件・短く、書き合いが長ければ長く)。発言は全部で' + S.posts.length + '件');
+  if (fresh && fresh.length) lines.push('- 新しい発言(前回の呼び出しのあと): ' + fresh.map((p) => '#' + p.id + ' ' + p.speaker).join('、') + '。それぞれに返す(挨拶・相づち・笑いだけのものは除く)');
+  if (mine.length) lines.push('- 挨拶は最初に済ませた。「おはよう」を言い直さない');
+  if (S.posts.every((p) => len(p.text) <= 14 && /おは|こんにちは|こんばんは|よろしく/.test(p.text))) {
+    lines.push(a.kind === 'strong' ? '- 今のところ全員が挨拶だけ。起点(名前や朝一やゲームの進め方への観察、軽い冗談)を1つ置いてよい。「誰を狼で見てる？」のような読みの問いは、材料が出るまで出さない。他の人が先に置いたら、それに返す' : '- 今のところ全員が挨拶だけ。話題がなければ、短い雑談や感想で場に乗る。ほかの人が話題を出したら、それに返す');
+  }
   const last30 = S.posts.filter((p) => p.t >= t - 30);
   lines.push('- 直近30秒の部屋の発言: ' + last30.length + '件(うち自分 ' + last30.filter((p) => p.speaker === me).length + '件)');
   if (mine.length) lines.push('- 自分の直近の発言(口調・立場・冗談の続きとして書く): ' + mine.slice(-3).map((p) => '#' + p.id + '「' + p.text.split('\n')[0].slice(0, 40) + '」').join(' / '));
@@ -345,9 +361,9 @@ function memo(a) {
   if (!a.memo) return '';
   return '# 前回の自分のメモ(参考。状況が変わっていれば更新する)\n- ' + a.memo + (a.lean ? '\n- 票先の見込み: ' + a.lean : '');
 }
-function chunkPrompt(a, t, horizon) {
+function chunkPrompt(a, t, horizon, fresh) {
   return [
-    sysPrompt(a), situation(a, t, horizon), hints(a, t), memo(a),
+    sysPrompt(a), situation(a, t, horizon), hints(a, t, fresh), memo(a),
     '# 今回の出力\nいまから' + horizon + '秒ぶんの、自分の発言を書く。at は 0〜' + horizon + '。出力形式のとおり、1行に1つの JSON だけを返す。',
   ].filter(Boolean).join('\n\n');
 }
@@ -411,7 +427,7 @@ function sanitize(text, a) {
   let s = String(text == null ? '' : text).replace(/\r/g, '').trim();
   s = s.replace(new RegExp('^' + a.name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\s*[:：]\\s*'), '');
   s = s.replace(/\n{3,}/g, '\n\n').trim();
-  return len(s) > 240 ? [...s].slice(0, 240).join('') : s;
+  return len(s) > 600 ? [...s].slice(0, 600).join('') : s;
 }
 function cleanTo(to) {
   if (!Array.isArray(to)) return [];
@@ -450,13 +466,14 @@ function schedule(call, obj) {
   const mine = S.posts.filter((p) => p.speaker === a.name).slice(-5).map((p) => p.text).concat(a.queue.map((q) => q.text));
   if (mine.includes(text)) return;
   const t = elapsed();
-  const at = clamp(Number(obj.at) || 0, 0, CHUNK);
-  const typing = THINK + len(text) / S.cfg.cps;
+  const at = clamp(Number(obj.at) || 0, 0, HORIZON);
+  const typing = THINK + Math.min(len(text) / S.cfg.cps, TYPE_CAP);
   const want = (call.base == null ? t : call.base) + at;
   const start = Math.max(t, want - typing, a.nextFree);
   const due = start + typing;
   if (due > S.duration - 0.3) return;
   a.nextFree = due + 0.2;
+  call.posts++;
   a.queue.push({ start, due, text, to: cleanTo(obj.to), reqAt: call.tStart });
 }
 
@@ -488,11 +505,9 @@ function addPost(speaker, text, to, t, reqAt) {
   S.posts.push(p);
   renderPost(p);
   if (p.you) {
-    for (const a of S.agents) { a.userAt = t; if (a.userFirst == null) a.userFirst = t; }
-  } else {
-    if (BAN.test(text)) S.flags.ban++;
-    if (len(text) > 200) S.flags.long++;
-    for (const a of S.agents) if (a.name !== speaker && text.includes(a.name)) a.callAt = t;
+    for (const a of S.agents) trimQueue(a, t);
+  } else if (BAN.test(text)) {
+    S.flags.ban++;
   }
   return p;
 }
@@ -526,7 +541,7 @@ function updateHud(t) {
 /* ---------- 呼び出しの管理 ---------- */
 function newCall(a, type) {
   return { id: ++S.seq, agent: a, type, start: performance.now(), tStart: elapsed(), ctl: new AbortController(), first: null, consumed: 0, base: null, lines: 0,
-    dead: false, aborted: false, stale: false, end: null, applied: null, error: null, chars: 0, head: '', promptChars: 0, tier: S.cfg.tier };
+    dead: false, aborted: false, stale: false, posts: 0, end: null, applied: null, error: null, chars: 0, head: '', promptChars: 0, tier: S.cfg.tier };
 }
 function closeCall(call, res) {
   call.end = performance.now(); call.applied = res.modelTierApplied || null; call.chars = res.text.length;
@@ -572,39 +587,51 @@ function flush(a, t) {
   while (a.queue.length && a.queue[0].due <= t) {
     const item = a.queue.shift();
     addPost(a.name, item.text, item.to, t, item.reqAt);
+    if (item.opener) a.opening = false; else a.aborts = 0;
   }
 }
-function dropQueue(a, t) { a.queue.length = 0; a.nextFree = t; }
+// 新しい発言があったとき、打ち始めた1件だけ残して、あとの予定は捨てる(見ていない発言への返しになってしまうため)
+function trimQueue(a, t) {
+  const keep = a.queue.filter((q, i) => q.opener || (i === 0 && q.start <= t));   // 最初の挨拶は、必ず出す
+  a.queue = keep;
+  a.nextFree = keep.length ? keep[keep.length - 1].due + 0.2 : t;
+}
 function maybeRequest(a, t) {
   if (S.duration - t < 2 || t < a.backoff) return;
+  if (S.agents.some((x) => x.opening)) return;                  // 挨拶が出そろうまで、モデルは呼ばない
+  if (a.kind === 'casual' && a.lastReq < -50) {                 // シンの最初の呼び出しは、ブンの最初の呼び出しが終わるのを待つ(同じ起点を置かないため)
+    const lead = S.agents[0];
+    if (!(lead.lastReq > -50 && !lead.call) && t < 4) return;
+  }
   const since = t - a.lastReq;
-  if (a.userAt != null) {
-    const quiet = t - a.userAt >= DEBOUNCE || t - a.userFirst >= MAX_WAIT;
-    if (!quiet) return;
+  const unseen = S.posts.filter((p) => p.id > a.seenId && p.speaker !== a.name);   // 前回の依頼のあとに出た、他の人の発言
+  if (unseen.length) {
+    const kind = unseen.some((p) => p.you || p.text.includes(a.name)) ? 'user' : 'ai';
+    const lastAt = unseen[unseen.length - 1].t, firstAt = unseen[0].t;
+    if (a.lastReq > -50 && t - lastAt < DEBOUNCE[kind] && t - firstAt < MAX_WAIT) return;    // 続けて来るかもしれないので、少し待つ(最初の呼び出しは待たない)
+    let justAborted = false;
     if (a.call) {
-      if (performance.now() - a.call.start < FAST_CALL * 1000) abortCall(a);
-      else { a.call.stale = true; return; }
+      const age = performance.now() - a.call.start;
+      const young = age < FAST_CALL * 1000 && (a.call.posts === 0 || (kind === 'user' && age < YOUNG_CALL * 1000));
+      if (young && a.aborts < MAX_ABORTS) { a.aborts++; abortCall(a); justAborted = true; }   // 新しい発言を見ていない若い呼び出しは、見せ直して作り直す
+      else { a.call.stale = true; return; }                                                   // 出し始めた・遅い呼び出しは、終わってから続ける
     }
-    if (since < MIN_GAP_USER) return;
-    if (!a.keepQueue) dropQueue(a, t);
+    if (!justAborted && since < MIN_GAP[kind]) return;
+    if (!a.keepQueue) trimQueue(a, t);
     a.keepQueue = false;
     requestChunk(a, t);
     return;
   }
-  if (a.call) return;
-  if (a.callAt != null && since >= MIN_GAP_CALLED) { requestChunk(a, t); return; }
-  if (since < MIN_GAP_FREE) return;
-  const ahead = a.queue.length ? a.queue[a.queue.length - 1].due : t;
-  if (ahead - t > LEAD) return;
-  const fresh = S.posts.some((p) => p.t >= a.lastReq && p.speaker !== a.name);
-  if (!fresh && since < 10 && a.lastReq > -50) return;
+  if (a.call || a.queue.length) return;
+  if (since < QUIET_GAP[a.kind]) return;                        // 誰も話さないときは、自分から話す
   requestChunk(a, t);
 }
 async function requestChunk(a, t) {
-  const horizon = Math.max(5, Math.min(CHUNK, Math.floor(S.duration - t)));
+  const horizon = Math.max(4, Math.min(HORIZON, Math.floor(S.duration - t)));
   const call = newCall(a, 'chunk');
-  a.call = call; a.lastReq = t; a.userAt = null; a.userFirst = null; a.callAt = null; a.error = null;
-  const prompt = chunkPrompt(a, t, horizon);
+  const fresh = S.posts.filter((p) => p.id > a.seenId && p.speaker !== a.name);   // この呼び出しで初めて見る発言
+  a.call = call; a.lastReq = t; a.seenId = S.nextId - 1; a.error = null;
+  const prompt = chunkPrompt(a, t, horizon, fresh);
   call.promptChars = prompt.length;
   try {
     const res = await ask(a, prompt, { signal: call.ctl.signal, modelTier: S.cfg.tier, cache: false, onText: (u) => onChunkText(call, u.text) }, { type: 'chunk' });
@@ -630,8 +657,8 @@ function tick() {
 
 /* ---------- 開始 ---------- */
 function makeAgent(name, kind, role) {
-  return { name, kind, role, call: null, queue: [], nextFree: 0, lastReq: -99, userAt: null, userFirst: null, callAt: null, keepQueue: false,
-    backoff: 0, memo: '', lean: null, reads: [], error: null, stat: { n: 0, last: null } };
+  return { name, kind, role, call: null, queue: [], nextFree: 0, lastReq: -99, seenId: 0, aborts: 0, keepQueue: false,
+    backoff: 0, memo: '', lean: null, reads: [], error: null, opening: false, stat: { n: 0, last: null } };
 }
 function assignRoles(cfg) {
   const seats = ['you', 'bun', 'shin'];
@@ -662,11 +689,10 @@ async function startGame(forceDemo) {
     if (!ok) { S.phase = 'setup'; $('startBtn').disabled = false; offerDemo(); return; }
   }
   S.user = S.cfg.name; S.duration = S.cfg.dur;
-  S.posts = []; S.nextId = 1; S.calls = []; S.votes = {}; S.flags = { ban: 0, long: 0 }; S.userVote = null; S.finished = false;
+  S.posts = []; S.nextId = 1; S.calls = []; S.votes = {}; S.flags = { ban: 0 }; S.userVote = null; S.finished = false;
   const roles = assignRoles(S.cfg);
   S.roles = { [S.user]: roles.you, [NAME.strong]: roles.bun, [NAME.casual]: roles.shin };
   S.agents = [makeAgent(NAME.strong, 'strong', roles.bun), makeAgent(NAME.casual, 'casual', roles.shin)];
-  S.agents[1].backoff = 1.5;
   logEl.textContent = '';
   addNote('役職設定【人狼-1,村人-3】 / 初日犠牲者さんが死亡しました / 恐ろしい夜が明け、朝になりました。');
   $('roleBadge').textContent = 'あなた: ' + roles.you + (S.demo ? ' / デモ' : '');
@@ -674,10 +700,22 @@ async function startGame(forceDemo) {
   $('chatForm').hidden = false; $('msg').disabled = false;
   S.t0 = performance.now();
   S.phase = 'talk';
+  scheduleOpeners();
   updateHud(0);
   S.timer = setInterval(tick, TICK_MS);
   tick();
   $('msg').focus();
+}
+function scheduleOpeners() {
+  S.agents.forEach((a, i) => {
+    const pool = (OPENERS[a.kind][S.cfg.register] || OPENERS[a.kind]['タメ口']);
+    const text = pool[Math.floor(Math.random() * pool.length)];
+    const start = 0.05 + (i === 0 ? 0 : 0.5 + Math.random() * 0.5);
+    const due = start + 0.1 + len(text) / S.cfg.cps;
+    a.queue.push({ start, due, text, to: [], reqAt: 0, opener: true });
+    a.nextFree = due + 0.2;
+    a.opening = true;
+  });
 }
 function offerDemo() {
   const c = $('conn');
@@ -819,7 +857,7 @@ function renderResult() {
   body.append(el('h2', 'mt', '量'));
   const vrows = players().map((n) => { const v = m.vol[n]; return [n, v.n, v.chars, Math.round(v.share * 100) + '%', Math.round(v.perMin)]; });
   body.append(table(['', '件数', '字数', '割合', '字/分'], vrows, 1));
-  body.append(el('p', 'note', 'B・A は、議論が動いているとき1分で120〜175字、部屋全体の4〜5割を書いた。ブンの字/分と割合の目安。口調の検査: 説明口調の語 ' + S.flags.ban + '件、200字超 ' + S.flags.long + '件。'));
+  body.append(el('p', 'note', 'B・A は、議論が動いているとき1分で120〜175字、部屋全体の4〜5割を書いた。ブンの字/分と割合の目安。口調の検査: 説明口調の語 ' + S.flags.ban + '件。最長の発言は ' + Math.max(0, ...S.posts.filter((p) => !p.you).map((p) => len(p.text))) + '字。'));
 
   const reads = $('reads'); reads.textContent = '';
   let any = false;
