@@ -43,7 +43,7 @@ def demo_reply(table: Table) -> dict:
 def make_client(args, table: Table):
     if args.fake:
         return ScriptedClient([demo_reply(table) for _ in range(args.retries + 1)])
-    return AnthropicClient(model=args.model, thinking_budget=args.thinking)
+    return AnthropicClient(model=args.model, effort=args.effort)
 
 
 def format_result(result: Result, plain: bool = False) -> str:
@@ -271,7 +271,7 @@ def cmd_score(args) -> None:
 
 def add_model_options(p) -> None:
     p.add_argument("--model", help="モデル名(省略時は環境変数 ZINRO_BOT_MODEL、なければ既定)")
-    p.add_argument("--thinking", type=int, help="考えさせるトークン数の上限(指定すると、tool の強制をやめて考えさせる)")
+    p.add_argument("--effort", choices=["low", "medium", "high", "xhigh", "max"], help="考える量(省略時はモデルの既定。low にすると、速く・安くなる)")
     p.add_argument("--fake", action="store_true", help="モデルを呼ばず、定型応答で流れだけ確認する")
     p.add_argument("--retries", type=int, default=2, help="検査に落ちたとき、出し直させる回数")
     p.add_argument("--critic", action="store_true", help="通った案を、もう一度点検させる(呼び出しが1回増える。取り違え・矛盾・繰り返しを減らす)")

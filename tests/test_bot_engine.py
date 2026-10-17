@@ -70,15 +70,44 @@ class RespondTest(unittest.TestCase):
         self.assertIn("- 投稿1", feedback(result.turn))
 
 
+def fake_urlopen(payload):
+    class Response:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            return False
+
+        def read(self):
+            return json.dumps(payload).encode("utf-8")
+
+    return mock.patch("urllib.request.urlopen", return_value=Response())
+
+
 class ClientTest(unittest.TestCase):
-    def test_body_forces_the_tool_unless_thinking(self):
+    def test_body_lets_the_model_call_the_tool_and_maps_effort(self):
         client = llm.AnthropicClient(api_key="k", model="m")
         body = client.body([{"type": "text", "text": "s"}], [{"role": "user", "content": "u"}])
-        self.assertEqual(body["tool_choice"], {"type": "tool", "name": llm.TOOL_NAME})
+        self.assertEqual(body["tool_choice"], {"type": "auto"})  # tool / any の強制は、claude-opus-5-5 などで 400
         self.assertEqual(body["tools"][0]["name"], llm.TOOL_NAME)
-        thinking = llm.AnthropicClient(api_key="k", model="m", thinking_budget=2000).body([], [])
-        self.assertEqual(thinking["tool_choice"], {"type": "auto"})
-        self.assertGreater(thinking["max_tokens"], 2000)
+        self.assertNotIn("thinking", body)  # budget_tokens も 400。考える量は effort で変える
+        self.assertNotIn("output_config", body)
+        low = llm.AnthropicClient(api_key="k", model="m", effort="low").body([], [])
+        self.assertEqual(low["output_config"], {"effort": "low"})
+        self.assertNotIn("thinking", low)
+        self.assertGreaterEqual(low["max_tokens"], 4096)  # 思考の token も数えられる
+
+    def test_the_user_message_asks_for_the_tool(self):
+        self.assertIn(llm.TOOL_NAME, user_message(parse_table(LOG)))  # tool を強制しないので、呼ぶ指示を入れる
+
+    def test_refusal_and_truncation_are_reported_instead_of_parsed(self):
+        client = llm.AnthropicClient(api_key="k", model="m")
+        for stop, word in (("refusal", "断った"), ("max_tokens", "max_tokens")):
+            payload = {"stop_reason": stop, "content": [{"type": "tool_use", "id": "t", "name": llm.TOOL_NAME, "input": {"posts": []}}]}
+            with fake_urlopen(payload):
+                with self.assertRaises(llm.ApiError) as caught:
+                    client.complete([], [])
+            self.assertIn(word, str(caught.exception))
 
     def test_extract_prefers_the_tool_and_falls_back_to_text_json(self):
         content = [{"type": "text", "text": "考え中"}, {"type": "tool_use", "id": "t1", "name": llm.TOOL_NAME, "input": {"posts": []}}]

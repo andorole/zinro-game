@@ -63,7 +63,7 @@ python -m unittest
    pbpaste | python -m zinro_bot reply - --me 名前
    python -m zinro_bot reply ログ.txt --show-transcript   # 読み取った発言者・並び・番号の確認
    ```
-   役職通知が1人分だけのログなら、`--me` と `--role` は省ける。`--model` で変える(既定は `claude-opus-5-5`、環境変数 `ZINRO_BOT_MODEL` でも指定できる)。`--thinking 4000` で考えさせる。`--register 敬語` で語調を変える。
+   役職通知が1人分だけのログなら、`--me` と `--role` は省ける。`--model` で変える(既定は `claude-opus-5-5`、環境変数 `ZINRO_BOT_MODEL` でも指定できる)。`--effort low` で考える量を減らす(速く、安くなる。Opus 5.5 は思考を切れないので、量で調整する)。`--register 敬語` で語調を変える。
    `--session 名前` を付けると、前のターンの読み(各人の立場、未回収の問い、票先の見込み)を `logs/sessions/`(git 管理外)に残して、次のターンに渡す。ゲームの途中で言うことが変わりにくい。`--critic` を付けると、出した案をもう一度点検させる(呼び出しが1回増える)。
 2. Claude Code(キーは要らない): このリポジトリで、`zinro-player` スキルに、ログを貼って頼む。
 3. Claude のプロジェクト(キーは要らない): `python -m zinro_bot prompt --me 名前 --role 村人 --format chat --out prompt.txt` の出力を、プロジェクトの指示に貼り、ログを貼って頼む。

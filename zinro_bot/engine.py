@@ -111,7 +111,7 @@ def make_memory(table: Table, turn: Turn) -> dict:
 
 def user_message(table: Table, remaining: int | None = None, register: str = "タメ口", memory: dict | None = None) -> str:
     parts = [render(table, remaining, register), hints(table), memory_text(memory, table)]
-    parts.append("上の状況で、あなたが次に書く発言を、指示の出力形式で提出する。")
+    parts.append("上の状況で、あなたが次に書く発言を、submit_turn ツールを呼んで、指示の出力形式で提出する。")
     return "\n\n".join(part for part in parts if part)
 
 

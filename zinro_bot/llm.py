@@ -2,6 +2,10 @@
 
 出力は tool use(submit_turn)で JSON を受ける。tool の入力の並びは read → posts → vote なので、
 モデルは読みを先に書いてから発言を書く。キーは環境変数 ANTHROPIC_API_KEY(または、リポジトリ直下の .env)。
+
+tool の強制(tool_choice の tool / any)と、思考の token 数の指定(budget_tokens)は、claude-opus-5-5 などの
+新しいモデルでは 400 になる。tool は auto で呼ばせ(呼ぶ指示はユーザー側のメッセージに入れる)、
+考える量は effort で変える。tool を呼ばずに文章で返したときは、文章の中の JSON を読む。
 """
 from __future__ import annotations
 
@@ -106,10 +110,10 @@ class AnthropicClient:
         api_key: str | None = None,
         model: str | None = None,
         base_url: str | None = None,
-        max_tokens: int = 4096,
+        max_tokens: int = 8192,  # 思考の token も、ここに数えられる
         timeout: int = 240,
         retries: int = 3,
-        thinking_budget: int | None = None,
+        effort: str | None = None,
     ):
         self.api_key = api_key or os.environ.get("ANTHROPIC_API_KEY")
         self.model = model or os.environ.get("ZINRO_BOT_MODEL") or DEFAULT_MODEL
@@ -117,7 +121,7 @@ class AnthropicClient:
         self.max_tokens = max_tokens
         self.timeout = timeout
         self.retries = retries
-        self.thinking_budget = thinking_budget
+        self.effort = effort
 
     def body(self, system: list[dict], messages: list[dict]) -> dict:
         body = {
@@ -126,12 +130,10 @@ class AnthropicClient:
             "system": system,
             "messages": messages,
             "tools": [TOOL],
-            "tool_choice": {"type": "tool", "name": TOOL_NAME},
+            "tool_choice": {"type": "auto"},  # 強制(tool / any)は、新しいモデルでは 400。呼ばせるのは、ユーザー側のメッセージの指示で行う
         }
-        if self.thinking_budget:
-            body["thinking"] = {"type": "enabled", "budget_tokens": self.thinking_budget}
-            body["tool_choice"] = {"type": "auto"}  # 考えさせるときは、tool の強制ができない
-            body["max_tokens"] = max(self.max_tokens, self.thinking_budget + 2048)
+        if self.effort:
+            body["output_config"] = {"effort": self.effort}  # 考える量(low〜max)。Opus 5.5 は、思考を切れない。省略時はモデルの既定
         return body
 
     def complete(self, system: list[dict], messages: list[dict]) -> Reply:
@@ -162,6 +164,11 @@ class AnthropicClient:
                     delay *= 2
                     continue
                 raise ApiError(f"API に接続できない: {exc}") from exc
+        stop = payload.get("stop_reason")
+        if stop == "refusal":
+            raise ApiError("モデルが応答を断った(stop_reason: refusal)")
+        if stop == "max_tokens":
+            raise ApiError(f"出力が max_tokens({self.max_tokens})で切れた。--effort を下げると、考える分が減る")
         content = payload.get("content", [])
         data, tool_id = extract(content)
         return Reply(data, payload.get("usage", {}), content, tool_id)
