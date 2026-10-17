@@ -43,6 +43,10 @@ input[type=text], select {
 input[type=range] { width: 100%; accent-color: var(--accent); }
 .dur { display: flex; align-items: center; gap: 14px; }
 .dur output { font: 600 22px var(--font-num); min-width: 4.6em; text-align: right; font-variant-numeric: tabular-nums; }
+.presets { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 8px; }
+.presets button { padding: 5px 10px; font-size: 13px; line-height: 1.3; font-variant-numeric: tabular-nums; text-align: center; }
+.presets small { display: block; color: var(--muted); font-size: 11px; }
+.presets button[aria-pressed=true] { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
 .tiers { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
 .tiers label { margin: 0; cursor: pointer; }
 .tiers input { position: absolute; opacity: 0; pointer-events: none; }
@@ -114,7 +118,7 @@ textarea.fb { width: 100%; height: 120px; margin-top: 8px; font: 12px/1.5 var(--
 <div id="app">
   <header>
     <h1>4A練習ルーム</h1>
-    <p class="sub" id="sub">人狼1・村人2+初日犠牲者(ダミー)。AI 2人を相手に、議論の長さを25秒きざみ(最大300秒)で選んで話し、投票する。</p>
+    <p class="sub" id="sub">人狼1・村人2+初日犠牲者(ダミー)。AI 2人を相手に、議論の長さ(25〜660秒)を選んで話し、投票する。</p>
   </header>
 
   <section id="setup" class="card" aria-labelledby="setupH">
@@ -134,8 +138,15 @@ textarea.fb { width: 100%; height: 120px; margin-top: 8px; font: 12px/1.5 var(--
     </div>
     <div class="field">
       <label for="dur">議論の長さ</label>
-      <div class="dur"><input id="dur" type="range" min="25" max="300" step="25" value="100"><output id="durOut" for="dur">100秒</output></div>
-      <p class="hint">25秒きざみ。本戦の議論は300秒(延長なし)。AI は、新しい発言を見るたびに、短く返す。</p>
+      <div class="dur"><input id="dur" type="range" min="25" max="660" step="5" value="100"><output id="durOut" for="dur">100秒</output></div>
+      <div class="presets" id="durPresets" role="group" aria-label="本戦の長さ">
+        <button type="button" data-sec="300" aria-pressed="false">300秒<small>延長なし</small></button>
+        <button type="button" data-sec="390" aria-pressed="false">390秒<small>延長1回</small></button>
+        <button type="button" data-sec="480" aria-pressed="false">480秒<small>延長2回</small></button>
+        <button type="button" data-sec="570" aria-pressed="false">570秒<small>延長3回</small></button>
+        <button type="button" data-sec="660" aria-pressed="false">660秒<small>延長4回</small></button>
+      </div>
+      <p class="hint">25〜660秒。本戦は300秒に、延長1回ごとに90秒が足される(ボタンで合わせられる)。AI は、新しい発言を見るたびに短く返し、議論の終わりぎわまで話し続ける。</p>
     </div>
     <div class="grid2">
       <div class="field"><label for="uname">あなたの名前</label><input id="uname" type="text" value="アキラ" maxlength="8" autocomplete="off"></div>
@@ -170,7 +181,7 @@ textarea.fb { width: 100%; height: 120px; margin-top: 8px; font: 12px/1.5 var(--
       </div>
     </div>
     <div class="actions"><button id="startBtn" class="primary" type="button" disabled>開始</button><span id="conn" class="hint" role="status">Claude への接続を確認しています…</span></div>
-    <p class="hint">Claude の利用枠を使います(AI は発言のたびに呼ぶので、「速い」で300秒なら100回前後になることがあります)。初回は許可の確認が出ます。打鍵速度は、このページが表示を遅らせる設定で、モデルの速さではありません(長い発言は、貼る扱いで、遅れは最大3秒)。</p>
+    <p class="hint">Claude の利用枠を使います(AI は発言のたびに呼ぶので、長い議論ほど呼び出しが増えます。「速い」で300秒なら100回以上、660秒なら数百回になることがあります)。初回は許可の確認が出ます。打鍵速度は、このページが表示を遅らせる設定で、モデルの速さではありません(長い発言は、貼る扱いで、遅れは最大3秒)。</p>
   </section>
 
   <section id="room" class="card" aria-label="議論" hidden>
@@ -226,6 +237,13 @@ const MAX_ABORTS = 2;                  // 続けて中断してよい回数。�
 const MIN_GAP = { user: 0.8, ai: 2.5 };  // 前の呼び出しからの最短間隔(秒)。あなたの発言と名前の呼びかけは短く、AI どうしは長く
 const QUIET_GAP = { strong: 6, casual: 9, judge: 14 };   // 誰も話さないとき、自分から話す間隔(秒)
 const THINK = 0.5;                     // 打ち始めるまでの間(秒)
+// 議論の終わりぎわ: 最後まで黙らない(反応式のままだと、呼び出しの遅れのぶん、終わりの数秒が空く)
+const END_STRETCH = 20;                // 終わりまで残りがこの秒数以内(長さの3割まで)なら、終わりまでの発言をまとめて頼む
+const DEAD_ZONE = 6;                   // 残りがこの秒数以内(長さの15%まで)なら、いまから呼んでも間に合わない。予定と考え中の呼び出しを、そのまま最後まで進める
+const END_GAP = 5;                     // 予定の最後が、終わりよりこの秒数以上手前なら、足りないとみて頼み足す
+const END_MIN_GAP = 4;                 // 終わりぎわの頼み足しの最短間隔(秒)
+const END_FILLS = 3;                   // 終わりぎわの頼み足しの上限(1人あたり。何も書かない応答が続いても、呼び続けない)
+const RUSH_MIN = 0.4;                  // 終わりぎわの発言を、打つ時間を縮めて間に合わせるときの最短(秒)
 const TYPE_CAP = 3;                    // 打つ時間の上限(秒)。長い発言は、打たずに貼る人もいるので、遅れを3秒までにする
 const OPENERS = {                      // ゲームが始まったらすぐ言う最初の発言。モデルを待たない。挨拶だけが多く、たまに軽い一言を足す
   strong: {
@@ -270,6 +288,9 @@ const S = {
 const NAME = { strong: 'ブン', casual: 'シン' };
 const TIER_JA = { quick: '速い', default: '標準', complex: '高精度' };
 const elapsed = () => (performance.now() - S.t0) / 1000;
+// 応答が遅い AI ほど、早めに頼み、早めに作り直しをやめる(最初の発言が届くまでの時間 ttft を使う)
+const endStretch = (a) => Math.min(S.duration * 0.3, Math.max(END_STRETCH, 2 * ((a && a.ttft) || 0) + 8));
+const deadZone = (a) => Math.min(S.duration * 0.15, Math.max(DEAD_ZONE, ((a && a.ttft) || 0) + 2));
 const players = () => [S.user, ...S.agents.map((a) => a.name)];
 const colorOf = (name) => name === S.user ? 'var(--you)' : (S.agents[0] && name === S.agents[0].name ? 'var(--ai1)' : 'var(--ai2)');
 
@@ -291,7 +312,7 @@ samplePromise.then((fn) => {
 
 /* ---------- 設定 ---------- */
 function readSettings() {
-  const dur = clamp(Math.round(Number($('dur').value) / 25) * 25 || 100, 25, 300);
+  const dur = clamp(Math.round(Number($('dur').value)) || 100, 25, 660);
   let name = $('uname').value.trim().slice(0, 8) || 'アキラ';
   if (name === NAME.strong || name === NAME.casual) name += 'さん';
   return {
@@ -308,9 +329,15 @@ function applySettings(c) {
   if (c.register) $('reg').value = c.register;
   if (c.cps) $('speed').value = String(c.cps);
   if (c.tier) { const r = document.querySelector('input[name=tier][value="' + c.tier + '"]'); if (r) r.checked = true; }
-  $('durOut').textContent = $('dur').value + '秒';
+  syncDur();
 }
-$('dur').addEventListener('input', () => { $('durOut').textContent = $('dur').value + '秒'; });
+function syncDur() {
+  const v = $('dur').value;
+  $('durOut').textContent = v + '秒';
+  for (const b of $('durPresets').querySelectorAll('button')) b.setAttribute('aria-pressed', String(b.dataset.sec === v));
+}
+$('dur').addEventListener('input', syncDur);
+$('durPresets').addEventListener('click', (e) => { const b = e.target.closest('button'); if (!b) return; $('dur').value = b.dataset.sec; syncDur(); });
 // 判定役の形: シンは、どちらにも肩入れしない判定役で、人狼にはならない
 function syncMode() {
   const judge = $('mode').value === 'judge';
@@ -319,8 +346,8 @@ function syncMode() {
     ? 'あなたとブンが議論し、シンは聞いて、最後に判定する(3人戦の第三者)。人狼は、あなたかブン。'
     : 'ブンとシンが、それぞれ話す。';
   $('sub').textContent = judge
-    ? '人狼1・村人2+初日犠牲者(ダミー)。ブンと対話し、判定役のシンが最後に判定する。議論の長さは25秒きざみ(最大300秒)。'
-    : '人狼1・村人2+初日犠牲者(ダミー)。AI 2人を相手に、議論の長さを25秒きざみ(最大300秒)で選んで話し、投票する。';
+    ? '人狼1・村人2+初日犠牲者(ダミー)。ブンと対話し、判定役のシンが最後に判定する。議論の長さは25〜660秒。'
+    : '人狼1・村人2+初日犠牲者(ダミー)。AI 2人を相手に、議論の長さ(25〜660秒)を選んで話し、投票する。';
   const opt = $('assign').querySelector('option[value=shin]');
   opt.disabled = judge;
   if (judge && $('assign').value === 'shin') $('assign').value = 'random';
@@ -399,6 +426,10 @@ function hints(a, t, fresh) {
     }
     const votes = mine.filter((p) => VOTE_TALK.test(p.text)).length;
     lines.push('- 票先への言及: 自分は' + votes + '回(議論全体で2回まで)。' + (votes >= 2 ? 'もう言わない(新しい材料が出たときだけ、理由を添えて変更を伝える)' : '言う前に、言って誰がどう動くかを考える。毎回は言わない'));
+  }
+  const remain = S.duration - t;
+  if (a.kind !== 'judge' && remain <= endStretch(a) + 10) {
+    lines.push('- 議論の終わりまで残り' + Math.max(0, Math.round(remain)) + '秒。最後まで書き続ける。言い残した問い、答えの出ていない点、最後の確認、短い一言を、残りの秒数のあいだに並べる(at を終わり近くまで使う)。同じことの繰り返しや水増しはしない');
   }
   if (S.posts.every((p) => len(p.text) <= 14 && /おは|こんにちは|こんばんは|よろしく/.test(p.text))) {
     lines.push(a.kind === 'judge' ? '- 今のところ全員が挨拶だけ。判定役は、様子を見る(書かなくてよい)' : a.kind === 'strong' ? '- 今のところ全員が挨拶だけ。起点(名前や朝一やゲームの進め方への観察、軽い冗談)を1つ置いてよい。「誰を狼で見てる？」のような読みの問いは、材料が出るまで出さない。他の人が先に置いたら、それに返す' : '- 今のところ全員が挨拶だけ。話題がなければ、短い雑談や感想で場に乗る。ほかの人が話題を出したら、それに返す');
@@ -494,7 +525,11 @@ function cleanTo(to) {
 }
 function onChunkText(call, text) {
   if (call.dead) return;
-  if (call.first === null && text.trim()) call.first = performance.now();
+  if (call.first === null && text.trim()) {
+    call.first = performance.now();
+    const x = (call.first - call.start) / 1000;
+    call.agent.ttft = call.agent.ttft == null ? x : 0.6 * call.agent.ttft + 0.4 * x;
+  }
   for (;;) {
     const r = nextObject(text, call.consumed);
     if (!r) break;
@@ -524,12 +559,16 @@ function schedule(call, obj) {
   const mine = S.posts.filter((p) => p.speaker === a.name).slice(-5).map((p) => p.text).concat(a.queue.map((q) => q.text));
   if (mine.includes(text)) return;
   const t = elapsed();
-  const at = clamp(Number(obj.at) || 0, 0, HORIZON);
+  const at = clamp(Number(obj.at) || 0, 0, call.horizon || HORIZON);
   const typing = THINK + Math.min(len(text) / S.cfg.cps, TYPE_CAP);
   const want = (call.base == null ? t : call.base) + at;
   const start = Math.max(t, want - typing, a.nextFree);
-  const due = start + typing;
-  if (due > S.duration - 0.3) return;
+  let due = start + typing;
+  const latest = S.duration - 0.3;
+  if (due > latest) {                                            // 終わりぎわ: 打つ時間を縮めて、最後まで間に合わせる(間に合わないものは捨てる)
+    if (start + RUSH_MIN > latest) return;
+    due = latest;
+  }
   a.nextFree = due + 0.2;
   call.posts++;
   a.queue.push({ start, due, text, to: cleanTo(obj.to), reqAt: call.tStart });
@@ -563,7 +602,7 @@ function addPost(speaker, text, to, t, reqAt) {
   S.posts.push(p);
   renderPost(p);
   if (p.you) {
-    for (const a of S.agents) trimQueue(a, t);
+    for (const a of S.agents) if (S.duration - t > deadZone(a)) trimQueue(a, t);   // 終わりぎわは、作り直しが間に合わない。予定をそのまま出す
   } else {
     if (BAN.test(text)) S.flags.ban++;
     if (/#\d+/.test(text)) S.flags.ref++;
@@ -600,7 +639,7 @@ function updateHud(t) {
 /* ---------- 呼び出しの管理 ---------- */
 function newCall(a, type) {
   return { id: ++S.seq, agent: a, type, start: performance.now(), tStart: elapsed(), ctl: new AbortController(), first: null, consumed: 0, base: null, lines: 0,
-    dead: false, aborted: false, stale: false, posts: 0, end: null, applied: null, error: null, chars: 0, head: '', promptChars: 0, tier: S.cfg.tier };
+    dead: false, aborted: false, stale: false, posts: 0, horizon: HORIZON, end: null, applied: null, error: null, chars: 0, head: '', promptChars: 0, tier: S.cfg.tier };
 }
 function closeCall(call, res) {
   call.end = performance.now(); call.applied = res.modelTierApplied || null; call.chars = res.text.length;
@@ -669,7 +708,8 @@ function maybeRequestJudge(a, t) {
   requestChunk(a, t);
 }
 function maybeRequest(a, t) {
-  if (S.duration - t < 2 || t < a.backoff) return;
+  const rem = S.duration - t;
+  if (rem < 2 || t < a.backoff) return;
   if (S.agents.some((x) => x.opening)) return;                  // 挨拶が出そろうまで、モデルは呼ばない
   if (a.kind === 'judge') { maybeRequestJudge(a, t); return; }
   if (a.kind === 'casual' && a.lastReq < -50) {                 // シンの最初の呼び出しは、ブンの最初の呼び出しが終わるのを待つ(同じ起点を置かないため)
@@ -678,6 +718,7 @@ function maybeRequest(a, t) {
   }
   const since = t - a.lastReq;
   const unseen = S.posts.filter((p) => p.id > a.seenId && p.speaker !== a.name);   // 前回の依頼のあとに出た、他の人の発言
+  if (rem <= deadZone(a) && (a.call || a.queue.length)) return;      // いまから呼んでも間に合わない。予定と考え中の呼び出しを、そのまま最後まで進める
   if (unseen.length) {
     const kind = unseen.some((p) => p.you || p.text.includes(a.name)) ? 'user' : 'ai';
     const lastAt = unseen[unseen.length - 1].t, firstAt = unseen[0].t;
@@ -695,13 +736,22 @@ function maybeRequest(a, t) {
     requestChunk(a, t);
     return;
   }
-  if (a.call || a.queue.length) return;
+  if (a.call) return;
+  if (rem <= endStretch(a)) {                                   // 終わりぎわ: 予定が終わりまで届いていなければ、残りぶんを頼み足す(最後まで黙らない)
+    const covered = a.queue.length ? a.queue[a.queue.length - 1].due : t;
+    if (S.duration - covered > END_GAP && since >= END_MIN_GAP && a.fills < END_FILLS) { a.fills++; requestChunk(a, t); }
+    return;
+  }
+  if (a.queue.length) return;
   if (since < QUIET_GAP[a.kind]) return;                        // 誰も話さないときは、自分から話す
   requestChunk(a, t);
 }
 async function requestChunk(a, t) {
-  const horizon = Math.max(4, Math.min(HORIZON, Math.floor(S.duration - t)));
+  const rem = S.duration - t;
+  // 終わりぎわは、終わりまでをまとめて頼む(最初の発言が届くまでの時間ぶん、短くする)
+  const horizon = rem <= endStretch(a) ? Math.max(4, Math.floor(rem - Math.max(2, a.ttft || 3))) : Math.max(4, Math.min(HORIZON, Math.floor(rem)));
   const call = newCall(a, 'chunk');
+  call.horizon = horizon;
   const fresh = S.posts.filter((p) => p.id > a.seenId && p.speaker !== a.name);   // この呼び出しで初めて見る発言
   a.call = call; a.lastReq = t; a.seenId = S.nextId - 1; a.error = null;
   const prompt = chunkPrompt(a, t, horizon, fresh);
@@ -731,7 +781,7 @@ function tick() {
 /* ---------- 開始 ---------- */
 function makeAgent(name, kind, role) {
   return { name, kind, role, call: null, queue: [], nextFree: 0, lastReq: -99, seenId: 0, aborts: 0, keepQueue: false,
-    backoff: 0, memo: '', lean: null, reads: [], error: null, opening: false, stat: { n: 0, last: null } };
+    backoff: 0, memo: '', lean: null, reads: [], error: null, opening: false, ttft: null, fills: 0, stat: { n: 0, last: null } };
 }
 function assignRoles(cfg) {
   const seats = cfg.mode === 'judge' ? ['you', 'bun'] : ['you', 'bun', 'shin'];    // 判定役のシンは、人狼にならない

@@ -55,6 +55,7 @@ class RoomTest(unittest.TestCase):
         self.assertIn("相手が答えた(答えようとした)問いは、聞き直さない", strong)  # 蒸し返さない
         self.assertIn("票先への言及は、毎回しない", strong)  # 票先は、言う価値があるときだけ
         self.assertIn("全員を同じ強さで見る", strong)  # 1人だけを攻めない
+        self.assertIn("黙らずに、最後まで発言を続ける", strong)  # 議論の終わりぎわまで話す
         self.assertIn("他の人と同じ相手を、同じ理由で、重ねて攻めない", strong)
         self.assertIn("# 発言例", strong)
         self.assertIn("ここは練習部屋。あなたの発言は、そのままチャットに表示される。", strong)
@@ -102,7 +103,19 @@ class RoomTest(unittest.TestCase):
         self.assertIn("相手が答えた問いは、聞き直さない", text)
         self.assertIn("自分以外の全員を、同じ強さで見る。1人だけを攻めない", text)
         self.assertIn("議論全体で2回まで", text)
+        self.assertIn("最後まで発言を続ける", text)
         self.assertEqual(set(build_prompts(ROOT)["casual"]), set(ROLES))
+
+    def test_the_length_is_free_of_the_25_second_grid_and_reaches_four_extensions(self):
+        match = re.search(r'<input id="dur" type="range" min="(\d+)" max="(\d+)" step="(\d+)"', self.html)
+        self.assertIsNotNone(match)
+        low, high, step = (int(x) for x in match.groups())
+        self.assertEqual((low, high), (25, 300 + 90 * 4))  # 最短25秒、最長は延長4回ぶん(660秒)
+        self.assertLess(step, 25)  # 25秒きざみにこだわらない
+        for extensions in range(5):  # 本戦の長さ(延長0〜4回)は、ボタンで、そのまま選べる
+            seconds = 300 + 90 * extensions
+            self.assertIn(f'data-sec="{seconds}"', self.html)
+            self.assertEqual((seconds - low) % step, 0)
 
     @unittest.skipUnless(shutil.which("node"), "node がない")
     def test_page_script_parses(self):
