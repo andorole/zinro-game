@@ -238,6 +238,7 @@ const OPENERS = {                      // ゲームが始まったらすぐ言�
   },
   judge: { 'タメ口': ['おはよう', 'おは'], '敬語': ['おはようございます'] },
 };
+const VOTE_TALK = /(に入れ(る|ます|るわ|るよ|るつもり|たい)|を吊(る|ります|りたい)|吊り(先|ます|は|寄り)|票(は|を)|投票(する|します)|で変わらない)/;   // 票先に触れた発言
 const BAN = /つまり|例えば|たとえば|ではないでしょうか|ということです|という点|ご自身/;
 const SETTINGS_KEY = 'room4a-settings';
 const PROMPTS = JSON.parse(document.getElementById('prompts').textContent);
@@ -384,6 +385,20 @@ function hints(a, t, fresh) {
     lines.push(n >= 2
       ? '- 判定役(' + judge.name + ')への呼びかけは、もう' + n + '回した。これ以上は呼びかけない(名前を出さない)。相手(' + S.user + ')との議論を進める。' + judge.name + 'の問いへの答えは、相手に向けた発言の中で、名前を出さずに兼ねる'
       : '- 判定役(' + judge.name + ')への呼びかけ(感想を聞く、判断を仰ぐ、答えを返す)は、議論全体で2回まで。これまで' + n + '回');
+  }
+  if (a.kind !== 'judge') {
+    // 全員を同じ強さで見る: 名前を出した・返信先にした回数を数えて、偏りを知らせる(判定役の形では、ブンは判定役に話しかけすぎない)
+    const others = players().filter((n) => n !== a.name);
+    const aimed = (n) => mine.filter((p) => p.text.includes(n) || (p.to || []).some((id) => { const q = S.posts.find((x) => x.id === id); return q && q.speaker === n; })).length;
+    const counts = others.map((n) => [n, aimed(n)]);
+    const total = counts.reduce((sum, c) => sum + c[1], 0);
+    if (others.length >= 2 && total >= 4 && !(a.kind === 'strong' && S.cfg.mode === 'judge')) {
+      const sorted = [...counts].sort((x, y) => x[1] - y[1]);
+      const skew = sorted[sorted.length - 1][1] >= 3 * Math.max(1, sorted[0][1]);
+      lines.push('- 各人への発言(名前を出した・返信先にした回数): ' + counts.map((c) => c[0] + ' ' + c[1] + '回').join('、') + (skew ? '。偏っている。' + sorted[0][0] + 'にも、同じ種類の問い(基準・理由・立場)を向ける' : '。全員を同じ強さで見る'));
+    }
+    const votes = mine.filter((p) => VOTE_TALK.test(p.text)).length;
+    lines.push('- 票先への言及: 自分は' + votes + '回(議論全体で2回まで)。' + (votes >= 2 ? 'もう言わない(新しい材料が出たときだけ、理由を添えて変更を伝える)' : '言う前に、言って誰がどう動くかを考える。毎回は言わない'));
   }
   if (S.posts.every((p) => len(p.text) <= 14 && /おは|こんにちは|こんばんは|よろしく/.test(p.text))) {
     lines.push(a.kind === 'judge' ? '- 今のところ全員が挨拶だけ。判定役は、様子を見る(書かなくてよい)' : a.kind === 'strong' ? '- 今のところ全員が挨拶だけ。起点(名前や朝一やゲームの進め方への観察、軽い冗談)を1つ置いてよい。「誰を狼で見てる？」のような読みの問いは、材料が出るまで出さない。他の人が先に置いたら、それに返す' : '- 今のところ全員が挨拶だけ。話題がなければ、短い雑談や感想で場に乗る。ほかの人が話題を出したら、それに返す');

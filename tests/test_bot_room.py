@@ -53,7 +53,9 @@ class RoomTest(unittest.TestCase):
         self.assertNotIn("雑談と議論の切り替え、", strong)
         self.assertNotIn("雑談が10件以上続いて", strong)  # 雑談から議論への切り替えを求めない
         self.assertIn("相手が答えた(答えようとした)問いは、聞き直さない", strong)  # 蒸し返さない
-        self.assertIn("票先に触れるのは、終盤に1回", strong)
+        self.assertIn("票先への言及は、毎回しない", strong)  # 票先は、言う価値があるときだけ
+        self.assertIn("全員を同じ強さで見る", strong)  # 1人だけを攻めない
+        self.assertIn("他の人と同じ相手を、同じ理由で、重ねて攻めない", strong)
         self.assertIn("# 発言例", strong)
         self.assertIn("ここは練習部屋。あなたの発言は、そのままチャットに表示される。", strong)
         self.assertNotIn("投稿するのは人間", strong)
@@ -98,6 +100,8 @@ class RoomTest(unittest.TestCase):
         self.assertIn("{me}", text)
         self.assertIn("内部の番号(#12 など)は書かない", text)  # 実戦のチャットには、発言の番号がない
         self.assertIn("相手が答えた問いは、聞き直さない", text)
+        self.assertIn("自分以外の全員を、同じ強さで見る。1人だけを攻めない", text)
+        self.assertIn("議論全体で2回まで", text)
         self.assertEqual(set(build_prompts(ROOT)["casual"]), set(ROLES))
 
     @unittest.skipUnless(shutil.which("node"), "node がない")
