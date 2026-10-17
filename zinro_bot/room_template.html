@@ -255,7 +255,7 @@ const S = {
   phase: 'setup', sample: null, demo: false, ready: false,
   cfg: null, t0: 0, duration: 100, user: 'アキラ',
   posts: [], nextId: 1, agents: [], timer: null, calls: [], seq: 0,
-  votes: {}, flags: { ban: 0 }, warmMs: null, userVote: null, finished: false,
+  votes: {}, flags: { ban: 0, ref: 0 }, warmMs: null, userVote: null, finished: false,
 };
 const NAME = { strong: 'ブン', casual: 'シン' };
 const TIER_JA = { quick: '速い', default: '標準', complex: '高精度' };
@@ -506,8 +506,9 @@ function addPost(speaker, text, to, t, reqAt) {
   renderPost(p);
   if (p.you) {
     for (const a of S.agents) trimQueue(a, t);
-  } else if (BAN.test(text)) {
-    S.flags.ban++;
+  } else {
+    if (BAN.test(text)) S.flags.ban++;
+    if (/#\d+/.test(text)) S.flags.ref++;
   }
   return p;
 }
@@ -689,7 +690,7 @@ async function startGame(forceDemo) {
     if (!ok) { S.phase = 'setup'; $('startBtn').disabled = false; offerDemo(); return; }
   }
   S.user = S.cfg.name; S.duration = S.cfg.dur;
-  S.posts = []; S.nextId = 1; S.calls = []; S.votes = {}; S.flags = { ban: 0 }; S.userVote = null; S.finished = false;
+  S.posts = []; S.nextId = 1; S.calls = []; S.votes = {}; S.flags = { ban: 0, ref: 0 }; S.userVote = null; S.finished = false;
   const roles = assignRoles(S.cfg);
   S.roles = { [S.user]: roles.you, [NAME.strong]: roles.bun, [NAME.casual]: roles.shin };
   S.agents = [makeAgent(NAME.strong, 'strong', roles.bun), makeAgent(NAME.casual, 'casual', roles.shin)];
@@ -857,7 +858,7 @@ function renderResult() {
   body.append(el('h2', 'mt', '量'));
   const vrows = players().map((n) => { const v = m.vol[n]; return [n, v.n, v.chars, Math.round(v.share * 100) + '%', Math.round(v.perMin)]; });
   body.append(table(['', '件数', '字数', '割合', '字/分'], vrows, 1));
-  body.append(el('p', 'note', 'B・A は、議論が動いているとき1分で120〜175字、部屋全体の4〜5割を書いた。ブンの字/分と割合の目安。口調の検査: 説明口調の語 ' + S.flags.ban + '件。最長の発言は ' + Math.max(0, ...S.posts.filter((p) => !p.you).map((p) => len(p.text))) + '字。'));
+  body.append(el('p', 'note', 'B・A は、議論が動いているとき1分で120〜175字、部屋全体の4〜5割を書いた。ブンの字/分と割合の目安。口調の検査: 説明口調の語 ' + S.flags.ban + '件、内部の番号(#12 など)の混入 ' + S.flags.ref + '件。最長の発言は ' + Math.max(0, ...S.posts.filter((p) => !p.you).map((p) => len(p.text))) + '字。'));
 
   const reads = $('reads'); reads.textContent = '';
   let any = false;
