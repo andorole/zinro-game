@@ -81,7 +81,12 @@ class RoomTest(unittest.TestCase):
         text = judge["村人"]
         self.assertIn("どちらにも肩入れしない", text)
         self.assertIn("あなたの1票が、決め手になる", text)
-        self.assertIn("口の巧さ、発言量、自信の強さ、先に言ったかどうかでは決めない", text)
+        self.assertIn("口の巧さ、発言量、自信の強さ、先に言ったかどうか、押しの強さでは決めない", text)
+        # 「答えなかったから狼」という独自の基準に寄らない。1つの基準で決めず、普通の材料を総合する
+        self.assertIn("「答えなかった」「答えられなかった」ことだけで、人狼とは見ない", text)
+        self.assertIn("自分だけの基準や理論を作らない", text)
+        self.assertIn("判定役は、答えを催促しない", text)
+        self.assertNotIn("答えのない問いが残っているとき", text)
         self.assertIn("1行に1つの JSON", text)
         self.assertIn("{me}", text)
         self.assertIn("{register}", text)

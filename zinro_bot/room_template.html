@@ -349,7 +349,7 @@ function situation(a, t, horizon) {
     const rest = players().filter((n) => n !== a.name && n !== judge.name);
     head.push(a.kind === 'judge'
       ? '- この部屋の形: あなたは判定役。議論しているのは、' + players().filter((n) => n !== a.name).join('と') + '。どちらにも肩入れせず、最後の投票で、人狼だと思うほうに入れる'
-      : '- この部屋の形: ' + judge.name + 'は判定役で、どちらにも肩入れしない(口数は少ない)。議論の相手は ' + rest[0] + '。最後の投票で、' + judge.name + 'の判断が決め手になる');
+      : '- この部屋の形: ' + judge.name + 'は判定役で、どちらにも肩入れしない。口数は少なく、議論には入ってこない。話しかけても中立のままで、味方にならない。議論の相手は ' + rest[0] + '。相手との議論そのものを進める。' + judge.name + 'への呼びかけ(感想を聞く、判断を仰ぐ、答えを返す)は、議論全体で2回まで');
   }
   if (horizon) head.push('- 今回の長さ: いまから' + horizon + '秒ぶん');
   const body = ['', '# ここまでの発言(古い順。番号は返信先の指定に使う。[]は議論が始まってからの経過)', '[通知] 恐ろしい夜が明け、朝になりました。(初日犠牲者さんが死亡しました)'];
@@ -372,12 +372,19 @@ function hints(a, t, fresh) {
   const named = after.filter((p) => p.text.includes(me)).map((p) => '#' + p.id);
   if (named.length) lines.push('- 自分の名前が出ている発言(最後の発言以降): ' + named.join('、'));
   const asked = after.filter((p) => /[？?]/.test(p.text)).map((p) => '#' + p.id);
-  if (asked.length) lines.push('- 問いを含む発言(最後の発言以降): ' + asked.join('、'));
+  if (asked.length && a.kind !== 'judge') lines.push('- 問いを含む発言(最後の発言以降): ' + asked.join('、'));
   const recent = S.posts.slice(-8);
   const mean = recent.reduce((s, p) => s + len(p.text), 0) / recent.length;
   lines.push('- 直近' + recent.length + '件の平均は' + Math.round(mean) + '字。部屋のテンポは、これに合わせる(短いやりとりなら1件・短く、書き合いが長ければ長く)。発言は全部で' + S.posts.length + '件');
-  if (fresh && fresh.length) lines.push('- 新しい発言(前回の呼び出しのあと): ' + fresh.map((p) => '#' + p.id + ' ' + p.speaker).join('、') + '。それぞれに返す(挨拶・相づち・笑いだけのものは除く)');
+  if (fresh && fresh.length) lines.push('- 新しい発言(前回の呼び出しのあと): ' + fresh.map((p) => '#' + p.id + ' ' + p.speaker).join('、') + (a.kind === 'judge' ? '。判定役は、書かなくてよい' : '。それぞれに返す(挨拶・相づち・笑いだけのものは除く)'));
   if (mine.length) lines.push('- 挨拶は最初に済ませた。「おはよう」を言い直さない');
+  if (a.kind === 'strong' && S.cfg.mode === 'judge') {
+    const judge = S.agents.find((x) => x.kind === 'judge');
+    const n = mine.filter((p) => p.text.includes(judge.name)).length;
+    lines.push(n >= 2
+      ? '- 判定役(' + judge.name + ')への呼びかけは、もう' + n + '回した。これ以上は呼びかけない(名前を出さない)。相手(' + S.user + ')との議論を進める。' + judge.name + 'の問いへの答えは、相手に向けた発言の中で、名前を出さずに兼ねる'
+      : '- 判定役(' + judge.name + ')への呼びかけ(感想を聞く、判断を仰ぐ、答えを返す)は、議論全体で2回まで。これまで' + n + '回');
+  }
   if (S.posts.every((p) => len(p.text) <= 14 && /おは|こんにちは|こんばんは|よろしく/.test(p.text))) {
     lines.push(a.kind === 'judge' ? '- 今のところ全員が挨拶だけ。判定役は、様子を見る(書かなくてよい)' : a.kind === 'strong' ? '- 今のところ全員が挨拶だけ。起点(名前や朝一やゲームの進め方への観察、軽い冗談)を1つ置いてよい。「誰を狼で見てる？」のような読みの問いは、材料が出るまで出さない。他の人が先に置いたら、それに返す' : '- 今のところ全員が挨拶だけ。話題がなければ、短い雑談や感想で場に乗る。ほかの人が話題を出したら、それに返す');
   }
@@ -404,7 +411,8 @@ function votePrompt(a, cand) {
   return [
     sysPrompt(a), situation(a, S.duration, 0), memo(a),
     '# 投票\n議論は終わった。投票する相手を決める。自分には入れられない。候補: ' + cand.join('、') +
-    '\nこの呼び出しでは、発言は書かない。次の形の JSON を1行だけ出す。前後に文章を付けない。\n{"vote":"名前","why":"理由(30字以内)"}',
+    (a.kind === 'judge' ? '\n判定役として、総合で決める。「答えなかった」ことだけを根拠にしない。理由は、具体的な発言を引いて、1〜2文で書く。' : '') +
+    '\nこの呼び出しでは、発言は書かない。次の形の JSON を1行だけ出す。前後に文章を付けない。\n{"vote":"名前","why":"理由(' + (a.kind === 'judge' ? '60' : '30') + '字以内)"}',
   ].join('\n\n');
 }
 
@@ -638,7 +646,7 @@ function maybeRequestJudge(a, t) {
   const unseen = S.posts.filter((p) => p.id > a.seenId && p.speaker !== a.name);
   const called = unseen.some((p) => p.text.includes(a.name));
   const first = a.lastReq < -50;
-  const quiet = first ? t >= 12 : since >= QUIET_GAP.judge;
+  const quiet = first ? t >= 20 : since >= QUIET_GAP.judge;
   if (a.call) { if (called) a.call.stale = true; return; }
   if (!(called || unseen.length >= 8 || quiet)) return;
   if (!first && since < (called ? 3 : 8)) return;
