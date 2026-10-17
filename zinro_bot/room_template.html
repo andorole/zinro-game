@@ -1,0 +1,935 @@
+<title>4A練習ルーム</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&family=Noto+Sans+JP:wght@400;500;700&display=swap">
+<style>
+/* 配置: 1カラム。設定 → 議論(タイマー・チャット・入力) → 投票 → 結果と計測。チャットは、時刻つきの掲示板の形 */
+:root {
+  --bg: #eceff3; --panel: #ffffff; --soft: #f4f6f9; --ink: #18212c; --muted: #5b6676; --line: #d2d8e0;
+  --accent: #1b5f8c; --accent-ink: #ffffff; --you: #1b5f8c; --ai1: #8d3a64; --ai2: #25785c; --warn: #b3412a; --ok: #25784a;
+  --font-ui: "Noto Sans JP", "Hiragino Sans", "Yu Gothic", system-ui, sans-serif;
+  --font-num: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0e131a; --panel: #161d27; --soft: #111821; --ink: #e6ebf2; --muted: #92a0b3; --line: #283240;
+    --accent: #5fb0e6; --accent-ink: #08131c; --you: #6fb8ea; --ai1: #e68ab4; --ai2: #62cfa4; --warn: #f08c6e; --ok: #5fcf8b;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0e131a; --panel: #161d27; --soft: #111821; --ink: #e6ebf2; --muted: #92a0b3; --line: #283240;
+  --accent: #5fb0e6; --accent-ink: #08131c; --you: #6fb8ea; --ai1: #e68ab4; --ai2: #62cfa4; --warn: #f08c6e; --ok: #5fcf8b;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+body {
+  background: var(--bg); color: var(--ink); font: 15px/1.65 var(--font-ui);
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px));
+  padding-block: 20px 48px;
+}
+#app { max-width: 760px; margin: 0 auto; display: flex; flex-direction: column; gap: 16px; }
+h1 { font-size: 22px; line-height: 1.3; margin: 0; letter-spacing: .02em; }
+h2 { font-size: 16px; margin: 0 0 10px; }
+.sub { color: var(--muted); margin: 6px 0 0; font-size: 13px; }
+.card { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 16px; min-width: 0; }
+.hint { color: var(--muted); font-size: 12.5px; margin: 6px 0 0; }
+label, .lab { display: block; font-size: 13px; color: var(--muted); margin-bottom: 4px; }
+.field { margin-bottom: 14px; min-width: 0; }
+.grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 0 14px; }
+input[type=text], select {
+  width: 100%; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px;
+  background: var(--soft); color: var(--ink); font: inherit; font-size: 16px; min-width: 0;
+}
+input[type=range] { width: 100%; accent-color: var(--accent); }
+.dur { display: flex; align-items: center; gap: 14px; }
+.dur output { font: 600 22px var(--font-num); min-width: 4.6em; text-align: right; font-variant-numeric: tabular-nums; }
+.tiers { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.tiers label { margin: 0; cursor: pointer; }
+.tiers input { position: absolute; opacity: 0; pointer-events: none; }
+.tiers span { display: block; border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; background: var(--soft); color: var(--ink); font-size: 14px; line-height: 1.4; }
+.tiers small { display: block; color: var(--muted); font-size: 11.5px; }
+.tiers input:checked + span { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
+.tiers input:focus-visible + span { outline: 2px solid var(--accent); outline-offset: 2px; }
+button {
+  font: inherit; font-size: 15px; padding: 9px 16px; border-radius: 8px; border: 1px solid var(--line);
+  background: var(--soft); color: var(--ink); cursor: pointer;
+}
+button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+button.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); font-weight: 700; }
+button:disabled { opacity: .5; cursor: not-allowed; }
+.actions { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.who { display: flex; gap: 8px; flex-wrap: wrap; margin: 0 0 14px; padding: 0; list-style: none; }
+.who li { border: 1px solid var(--line); border-radius: 8px; padding: 6px 10px; background: var(--soft); font-size: 13px; }
+.who b { font-weight: 700; }
+
+.hud { display: flex; flex-direction: column; gap: 8px; margin-bottom: 10px; }
+.hud-row { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; }
+.timer { font: 600 36px/1 var(--font-num); font-variant-numeric: tabular-nums; }
+.timer.low { color: var(--warn); }
+.at { font: 14px var(--font-num); color: var(--muted); }
+.badge { margin-left: auto; font-size: 13px; border: 1px solid var(--line); border-radius: 999px; padding: 3px 12px; background: var(--soft); }
+.bar { height: 6px; background: var(--line); border-radius: 3px; overflow: hidden; }
+.bar > i { display: block; height: 100%; width: 100%; background: var(--accent); transform-origin: left center; transition: transform .2s linear; }
+.chips { display: flex; gap: 8px; flex-wrap: wrap; }
+.chip { border: 1px solid var(--line); border-radius: 8px; padding: 4px 10px; font-size: 12.5px; background: var(--soft); min-width: 0; }
+.chip b { margin-right: 6px; }
+.chip .mut { color: var(--muted); font-family: var(--font-num); font-size: 11.5px; margin-left: 6px; }
+
+.log { height: min(52vh, 480px); min-height: 220px; overflow-y: auto; background: var(--soft); border: 1px solid var(--line); border-radius: 8px; padding: 6px 10px; }
+.line { display: grid; grid-template-columns: 3.2em 5.4em minmax(0, 1fr); gap: 0 8px; padding: 3px 0; align-items: baseline; }
+.meta { font: 11px/1.25 var(--font-num); color: var(--muted); text-align: right; }
+.meta b { display: block; font-weight: 400; }
+.nm { font-weight: 700; font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tx { white-space: pre-wrap; overflow-wrap: anywhere; }
+.re { color: var(--muted); font-size: 12px; cursor: help; }
+.sys { color: var(--muted); font-size: 12.5px; text-align: center; padding: 6px 0; }
+.typing { min-height: 1.6em; font-size: 12.5px; color: var(--muted); padding: 4px 2px 0; }
+.send { display: flex; gap: 8px; margin-top: 6px; flex-wrap: wrap; }
+.send input { flex: 1 1 200px; }
+.vote-btns { display: flex; gap: 10px; flex-wrap: wrap; margin: 10px 0 6px; }
+.vote-btns button { min-width: 8em; }
+.result-h { font-size: 20px; margin: 0 0 4px; }
+.result-h.win { color: var(--ok); }
+.result-h.lose { color: var(--warn); }
+table { border-collapse: collapse; width: 100%; font-size: 13px; font-variant-numeric: tabular-nums; }
+th, td { text-align: left; padding: 5px 8px; border-bottom: 1px solid var(--line); vertical-align: top; white-space: nowrap; }
+td.wrap { white-space: normal; min-width: 9em; }
+th { color: var(--muted); font-weight: 500; font-size: 12px; }
+td.num, th.num { text-align: right; font-family: var(--font-num); }
+.scroll-x { overflow-x: auto; }
+details > summary { cursor: pointer; font-size: 14px; }
+pre.box { background: var(--soft); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; font: 12px/1.5 var(--font-num); white-space: pre-wrap; overflow-wrap: anywhere; max-height: 260px; overflow: auto; margin: 8px 0 0; }
+textarea.fb { width: 100%; height: 120px; margin-top: 8px; font: 12px/1.5 var(--font-num); background: var(--soft); color: var(--ink); border: 1px solid var(--line); border-radius: 8px; padding: 8px; }
+.note { font-size: 12.5px; color: var(--muted); margin: 8px 0 0; }
+.mt { margin-top: 12px; }
+@media (max-width: 480px) {
+  .grid2 { grid-template-columns: 1fr; }
+  .tiers { grid-template-columns: 1fr; }
+  .line { grid-template-columns: 2.9em 4.4em minmax(0, 1fr); gap: 0 6px; }
+  .timer { font-size: 32px; }
+}
+@media (prefers-reduced-motion: reduce) { .bar > i { transition: none; } }
+</style>
+
+<div id="app">
+  <header>
+    <h1>4A練習ルーム</h1>
+    <p class="sub">人狼1・村人2+初日犠牲者(ダミー)。AI 2人を相手に、議論の長さを25秒きざみ(最大300秒)で選んで話し、投票する。</p>
+  </header>
+
+  <section id="setup" class="card" aria-labelledby="setupH">
+    <h2 id="setupH">部屋の設定</h2>
+    <ul class="who">
+      <li><b style="color:var(--ai1)">ブン</b> B・A の動きを写したボット</li>
+      <li><b style="color:var(--ai2)">シン</b> ふつうの参加者</li>
+      <li><b style="color:var(--you)">あなた</b> 人間</li>
+    </ul>
+    <div class="field">
+      <label for="dur">議論の長さ</label>
+      <div class="dur"><input id="dur" type="range" min="25" max="300" step="25" value="100"><output id="durOut" for="dur">100秒</output></div>
+      <p class="hint">25秒きざみ。本戦の議論は300秒(延長なし)。AI は、新しい発言を見るたびに、短く返す。</p>
+    </div>
+    <div class="grid2">
+      <div class="field"><label for="uname">あなたの名前</label><input id="uname" type="text" value="アキラ" maxlength="8" autocomplete="off"></div>
+      <div class="field"><label for="assign">配役</label>
+        <select id="assign">
+          <option value="random">ランダム</option>
+          <option value="you">あなたが人狼</option>
+          <option value="bun">ブンが人狼</option>
+          <option value="shin">シンが人狼</option>
+        </select>
+      </div>
+    </div>
+    <div class="field">
+      <span class="lab" id="tierLab">AI の応答</span>
+      <div class="tiers" role="radiogroup" aria-labelledby="tierLab">
+        <label><input type="radio" name="tier" value="quick" checked><span>速い<small>ほぼ即答。読みは浅め</small></span></label>
+        <label><input type="radio" name="tier" value="default"><span>標準<small>考えてから書く。数秒〜数十秒</small></span></label>
+        <label><input type="radio" name="tier" value="complex"><span>高精度<small>いちばん考える。遅い</small></span></label>
+      </div>
+      <p class="hint">「標準」「高精度」は、最初の発言まで数十秒かかることがある。100秒未満の議論は「速い」がおすすめ。</p>
+    </div>
+    <div class="grid2">
+      <div class="field"><label for="speed">AI の打鍵速度</label>
+        <select id="speed">
+          <option value="5">ふつう(5字/秒)</option>
+          <option value="9">速い(9字/秒)</option>
+          <option value="16" selected>人外(16字/秒)</option>
+        </select>
+      </div>
+      <div class="field"><label for="reg">語調</label>
+        <select id="reg"><option value="タメ口" selected>タメ口</option><option value="敬語">敬語</option></select>
+      </div>
+    </div>
+    <div class="actions"><button id="startBtn" class="primary" type="button" disabled>開始</button><span id="conn" class="hint" role="status">Claude への接続を確認しています…</span></div>
+    <p class="hint">Claude の利用枠を使います(AI は発言のたびに呼ぶので、「速い」で300秒なら100回前後になることがあります)。初回は許可の確認が出ます。打鍵速度は、このページが表示を遅らせる設定で、モデルの速さではありません(長い発言は、貼る扱いで、遅れは最大3秒)。</p>
+  </section>
+
+  <section id="room" class="card" aria-label="議論" hidden>
+    <div class="hud">
+      <div class="hud-row"><span class="timer" id="timer">1:40</span><span class="at" id="at">@100</span><span class="badge" id="roleBadge"></span></div>
+      <div class="bar"><i id="barfill"></i></div>
+      <div class="chips" id="chips"></div>
+    </div>
+    <div class="log" id="log" role="log" aria-live="polite" aria-label="チャット"></div>
+    <div class="typing" id="typing" aria-hidden="true"></div>
+    <form id="chatForm" class="send" autocomplete="off">
+      <input id="msg" type="text" maxlength="300" placeholder="発言を入力して Enter" aria-label="発言">
+      <button type="submit" class="primary">送信</button>
+      <button type="button" id="endBtn">議論を終える</button>
+    </form>
+  </section>
+
+  <section id="vote" class="card" aria-labelledby="voteH" hidden>
+    <h2 id="voteH">投票</h2>
+    <p class="hint" style="margin-top:0">狼だと思う相手に入れる。2票を集めた人が処刑される。</p>
+    <div class="vote-btns" id="voteBtns"></div>
+    <p class="note" id="voteStatus" role="status"></p>
+  </section>
+
+  <section id="result" class="card" aria-labelledby="resultH" hidden>
+    <h2 class="result-h" id="resultH"></h2>
+    <div id="resultBody"></div>
+    <div class="actions mt">
+      <button type="button" id="copyLog">ログをコピー(zinro.net 形式)</button>
+      <button type="button" id="copyDiag">診断をコピー</button>
+      <button type="button" id="again" class="primary">もう一度</button>
+    </div>
+    <p class="note" id="copyNote" role="status"></p>
+    <textarea id="fallback" class="fb" aria-label="コピー用" hidden readonly></textarea>
+    <details class="mt" id="readsBox"><summary>AI の読み(チャットには出ていない)</summary><div id="reads"></div></details>
+    <details class="mt"><summary>診断(AI 呼び出しの記録)</summary><div class="scroll-x" id="diagBody"></div></details>
+  </section>
+</div>
+
+<script type="application/json" id="prompts">/*__PROMPTS__*/</script>
+<script>
+(() => {
+'use strict';
+
+/* ---------- 定数 ---------- */
+const HORIZON = 8;                     // AI が1回の呼び出しで書く長さ(秒)。短くして、新しい発言に返せるようにする
+const TICK_MS = 200;
+const DEBOUNCE = { user: 0.5, ai: 1.0 };   // 新しい発言のあと、続けて来るのを待つ秒数(あなたの発言と名前の呼びかけは短く)
+const MAX_WAIT = 2.5;                  // 発言が続いていても、これ以上は待たない
+const FAST_CALL = 6;                   // まだ発言を出していない呼び出しで、経過がこれ未満なら、新しい発言を見せるため中断して作り直す
+const YOUNG_CALL = 3;                  // あなたの発言・名前の呼びかけのときは、発言を出し始めていても、経過がこれ未満なら作り直す
+const MAX_ABORTS = 2;                  // 続けて中断してよい回数。これを超えたら、終わるのを待つ(返事が出なくなるのを防ぐ)
+const MIN_GAP = { user: 0.8, ai: 2.5 };  // 前の呼び出しからの最短間隔(秒)。あなたの発言と名前の呼びかけは短く、AI どうしは長く
+const QUIET_GAP = { strong: 6, casual: 9 };   // 誰も話さないとき、自分から話す間隔(秒)
+const THINK = 0.5;                     // 打ち始めるまでの間(秒)
+const TYPE_CAP = 3;                    // 打つ時間の上限(秒)。長い発言は、打たずに貼る人もいるので、遅れを3秒までにする
+const OPENERS = {                      // ゲームが始まったらすぐ言う最初の発言。モデルを待たない。挨拶だけが多く、たまに軽い一言を足す
+  strong: {
+    'タメ口': ['おはよう', 'おはよう', 'おはよう', 'おはよう', 'おはよー', 'おはよう。よろしく', 'おはよう。朝一って毎回どう始めるか迷う', 'おはよう。眠い', 'おはよう。今日は平和にいこう'],
+    '敬語': ['おはようございます', 'おはようございます', 'おはようございます', 'おはようございます。よろしくお願いします', 'おはようございます。朝一はいつも迷いますね'],
+  },
+  casual: {
+    'タメ口': ['おは', 'おは', 'おは', 'おはよう', 'おはよー', 'おはよ〜', 'おは。ねむ'],
+    '敬語': ['おはようございます', 'おはようございます', 'おはようございます。'],
+  },
+};
+const BAN = /つまり|例えば|たとえば|ではないでしょうか|ということです|という点|ご自身/;
+const SETTINGS_KEY = 'room4a-settings';
+const PROMPTS = JSON.parse(document.getElementById('prompts').textContent);
+
+/* ---------- 小道具 ---------- */
+const $ = (id) => document.getElementById(id);
+const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
+const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
+const len = (s) => [...s].length;
+const fmt = (sec) => { sec = Math.max(0, Math.floor(sec)); return Math.floor(sec / 60) + ':' + String(sec % 60).padStart(2, '0'); };
+const avg = (xs) => xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : null;
+const f1 = (x) => x == null ? '—' : x.toFixed(1);
+const sleep = (ms, signal) => new Promise((res, rej) => {
+  const id = setTimeout(res, ms);
+  if (signal) signal.addEventListener('abort', () => { clearTimeout(id); rej({ code: 'cancelled', message: 'aborted' }); }, { once: true });
+});
+const store = {
+  get() { try { return JSON.parse(localStorage.getItem(SETTINGS_KEY) || 'null'); } catch (e) { return null; } },
+  set(v) { try { localStorage.setItem(SETTINGS_KEY, JSON.stringify(v)); } catch (e) { /* 保存できなくても動く */ } },
+};
+
+/* ---------- 状態 ---------- */
+const S = {
+  phase: 'setup', sample: null, demo: false, ready: false,
+  cfg: null, t0: 0, duration: 100, user: 'アキラ',
+  posts: [], nextId: 1, agents: [], timer: null, calls: [], seq: 0,
+  votes: {}, flags: { ban: 0 }, warmMs: null, userVote: null, finished: false,
+};
+const NAME = { strong: 'ブン', casual: 'シン' };
+const TIER_JA = { quick: '速い', default: '標準', complex: '高精度' };
+const elapsed = () => (performance.now() - S.t0) / 1000;
+const players = () => [S.user, ...S.agents.map((a) => a.name)];
+const colorOf = (name) => name === S.user ? 'var(--you)' : (S.agents[0] && name === S.agents[0].name ? 'var(--ai1)' : 'var(--ai2)');
+
+/* ---------- 読み込み: Claude の呼び出し口を探す ---------- */
+const samplePromise = (async () => {
+  try {
+    if (!window.claude || typeof window.claude.use !== 'function') return null;
+    return (await window.claude.use('sample')) || null;
+  } catch (e) { return null; }
+})();
+
+function setConn(text) { $('conn').textContent = text; }
+
+samplePromise.then((fn) => {
+  S.sample = fn; S.ready = true;
+  setConn(fn ? 'Claude に接続できます。' : 'Claude を呼べません(Claude のアプリ内の表示で開くと動きます)。いまはデモ(定型応答。AI は動いていない)で動きます。');
+  $('startBtn').disabled = false;
+});
+
+/* ---------- 設定 ---------- */
+function readSettings() {
+  const dur = clamp(Math.round(Number($('dur').value) / 25) * 25 || 100, 25, 300);
+  let name = $('uname').value.trim().slice(0, 8) || 'アキラ';
+  if (name === NAME.strong || name === NAME.casual) name += 'さん';
+  return {
+    dur, name, assign: $('assign').value, register: $('reg').value, cps: Number($('speed').value) || 9,
+    tier: (document.querySelector('input[name=tier]:checked') || { value: 'quick' }).value,
+  };
+}
+function applySettings(c) {
+  if (!c) return;
+  if (c.dur) { $('dur').value = c.dur; }
+  if (c.name) $('uname').value = c.name;
+  if (c.assign) $('assign').value = c.assign;
+  if (c.register) $('reg').value = c.register;
+  if (c.cps) $('speed').value = String(c.cps);
+  if (c.tier) { const r = document.querySelector('input[name=tier][value="' + c.tier + '"]'); if (r) r.checked = true; }
+  $('durOut').textContent = $('dur').value + '秒';
+}
+$('dur').addEventListener('input', () => { $('durOut').textContent = $('dur').value + '秒'; });
+applySettings(store.get());
+
+/* ---------- プロンプト ---------- */
+function sysPrompt(a) {
+  const base = a.kind === 'strong' ? PROMPTS.strong[a.role] : PROMPTS.casual[a.role];
+  return base.split('{me}').join(a.name).split('{register}').join(S.cfg.register);
+}
+function situation(a, t, horizon) {
+  const rem = Math.max(0, Math.round(S.duration - t));
+  const head = [
+    '# 卓の状況',
+    '- 自分の名前: ' + a.name,
+    '- 自分の役職: ' + a.role,
+    '- 参加者: ' + players().join('、') + '(自分を含む3人。初日犠牲者のダミーは死亡済み)',
+    '- 局面: 昼の議論中(1日目)',
+    '- 経過: ' + Math.round(t) + '秒 / 議論は全体で' + S.duration + '秒。残り' + rem + '秒(@' + rem + ')',
+    '- 発言の語調: ' + S.cfg.register,
+  ];
+  if (horizon) head.push('- 今回の長さ: いまから' + horizon + '秒ぶん');
+  const body = ['', '# ここまでの発言(古い順。番号は返信先の指定に使う。[]は議論が始まってからの経過)', '[通知] 恐ろしい夜が明け、朝になりました。(初日犠牲者さんが死亡しました)'];
+  if (!S.posts.length) body.push('(まだ誰も発言していない)');
+  for (const p of S.posts) {
+    const [first, ...rest] = p.text.split('\n');
+    body.push('#' + p.id + ' [' + fmt(p.t) + '] ' + p.speaker + ': ' + first);
+    for (const r of rest) body.push('    ' + r);
+  }
+  return head.concat(body).join('\n');
+}
+function hints(a, t, fresh) {
+  const lines = ['# 機械的に拾ったメモ(参考。判断はあなたがする)'];
+  if (!S.posts.length) { lines.push('- まだ誰も発言していない。挨拶と、短い冗談か最初の話題から入る'); return lines.join('\n'); }
+  const me = a.name;
+  const mine = S.posts.filter((p) => p.speaker === me);
+  const lastMine = mine.length ? mine[mine.length - 1] : null;
+  const after = S.posts.filter((p) => p.id > (lastMine ? lastMine.id : 0) && p.speaker !== me);
+  lines.push(lastMine ? '- 自分の最後の発言: #' + lastMine.id + '(' + fmt(lastMine.t) + ')。それ以降の他人の発言: ' + after.length + '件' : '- 自分はまだ発言していない。他人の発言: ' + after.length + '件');
+  const named = after.filter((p) => p.text.includes(me)).map((p) => '#' + p.id);
+  if (named.length) lines.push('- 自分の名前が出ている発言(最後の発言以降): ' + named.join('、'));
+  const asked = after.filter((p) => /[？?]/.test(p.text)).map((p) => '#' + p.id);
+  if (asked.length) lines.push('- 問いを含む発言(最後の発言以降): ' + asked.join('、'));
+  const recent = S.posts.slice(-8);
+  const mean = recent.reduce((s, p) => s + len(p.text), 0) / recent.length;
+  lines.push('- 直近' + recent.length + '件の平均は' + Math.round(mean) + '字。部屋のテンポは、これに合わせる(短いやりとりなら1件・短く、書き合いが長ければ長く)。発言は全部で' + S.posts.length + '件');
+  if (fresh && fresh.length) lines.push('- 新しい発言(前回の呼び出しのあと): ' + fresh.map((p) => '#' + p.id + ' ' + p.speaker).join('、') + '。それぞれに返す(挨拶・相づち・笑いだけのものは除く)');
+  if (mine.length) lines.push('- 挨拶は最初に済ませた。「おはよう」を言い直さない');
+  if (S.posts.every((p) => len(p.text) <= 14 && /おは|こんにちは|こんばんは|よろしく/.test(p.text))) {
+    lines.push(a.kind === 'strong' ? '- 今のところ全員が挨拶だけ。起点(名前や朝一やゲームの進め方への観察、軽い冗談)を1つ置いてよい。「誰を狼で見てる？」のような読みの問いは、材料が出るまで出さない。他の人が先に置いたら、それに返す' : '- 今のところ全員が挨拶だけ。話題がなければ、短い雑談や感想で場に乗る。ほかの人が話題を出したら、それに返す');
+  }
+  const last30 = S.posts.filter((p) => p.t >= t - 30);
+  lines.push('- 直近30秒の部屋の発言: ' + last30.length + '件(うち自分 ' + last30.filter((p) => p.speaker === me).length + '件)');
+  if (mine.length) lines.push('- 自分の直近の発言(口調・立場・冗談の続きとして書く): ' + mine.slice(-3).map((p) => '#' + p.id + '「' + p.text.split('\n')[0].slice(0, 40) + '」').join(' / '));
+  const chars = {}; let total = 0;
+  for (const p of S.posts) { chars[p.speaker] = (chars[p.speaker] || 0) + len(p.text); total += len(p.text); }
+  const share = Object.entries(chars).sort((x, y) => y[1] - x[1]).map(([n, c]) => n + ' ' + Math.round(100 * c / (total || 1)) + '%').join('、');
+  lines.push('- 文字量の割合: ' + share + (a.kind === 'strong' ? '(B・A は部屋全体の4〜5割を書いた。自分が少なすぎないか)' : ''));
+  return lines.join('\n');
+}
+function memo(a) {
+  if (!a.memo) return '';
+  return '# 前回の自分のメモ(参考。状況が変わっていれば更新する)\n- ' + a.memo + (a.lean ? '\n- 票先の見込み: ' + a.lean : '');
+}
+function chunkPrompt(a, t, horizon, fresh) {
+  return [
+    sysPrompt(a), situation(a, t, horizon), hints(a, t, fresh), memo(a),
+    '# 今回の出力\nいまから' + horizon + '秒ぶんの、自分の発言を書く。at は 0〜' + horizon + '。出力形式のとおり、1行に1つの JSON だけを返す。',
+  ].filter(Boolean).join('\n\n');
+}
+function votePrompt(a, cand) {
+  return [
+    sysPrompt(a), situation(a, S.duration, 0), memo(a),
+    '# 投票\n議論は終わった。投票する相手を決める。自分には入れられない。候補: ' + cand.join('、') +
+    '\nこの呼び出しでは、発言は書かない。次の形の JSON を1行だけ出す。前後に文章を付けない。\n{"vote":"名前","why":"理由(30字以内)"}',
+  ].join('\n\n');
+}
+
+/* ---------- モデルの呼び出し(デモは定型応答) ---------- */
+function ask(a, prompt, opts, meta) {
+  if (S.demo) return demoAsk(a, meta, opts);
+  return S.sample(prompt, opts);
+}
+async function demoAsk(a, meta, opts) {
+  const sig = opts && opts.signal;
+  let objs;
+  if (meta.type === 'vote') {
+    objs = [{ vote: meta.cand[Math.floor(Math.random() * meta.cand.length)], why: 'デモの定型応答' }];
+  } else {
+    const mine = S.posts.filter((p) => p.speaker === a.name).length;
+    const last = [...S.posts].reverse().find((p) => p.speaker !== a.name);
+    const strong = ['おはよう', '雑談は短めでいい。誰から見る？', (last ? last.speaker : 'みんな') + 'はどこで差をつけて決めてる？', 'それ、理由も聞きたい'];
+    const casual = ['おは', 'よろしく', 'なんとなく静かな人が怪しい気がする', 'そうなの？'];
+    const pool = a.kind === 'strong' ? strong : casual;
+    objs = [{ read: '(デモ)定型応答。AI は呼んでいない', vote: null }, { at: 1, to: last ? [last.id] : [], text: pool[mine % pool.length] }];
+  }
+  await sleep(500 + Math.random() * 500, sig);
+  let text = '';
+  for (const o of objs) {
+    const line = JSON.stringify(o) + '\n';
+    text += line;
+    if (opts && opts.onText) opts.onText({ text, delta: line });
+    await sleep(200, sig);
+  }
+  return { text, truncated: false, modelTierApplied: 'quick' };
+}
+
+/* ---------- 出力の読み取り ---------- */
+function nextObject(text, from) {
+  const i = text.indexOf('{', from);
+  if (i < 0) return null;
+  let depth = 0, inStr = false, esc = false;
+  for (let j = i; j < text.length; j++) {
+    const c = text[j];
+    if (inStr) { if (esc) esc = false; else if (c === '\\') esc = true; else if (c === '"') inStr = false; continue; }
+    if (c === '"') inStr = true;
+    else if (c === '{') depth++;
+    else if (c === '}') { depth--; if (depth === 0) return { end: j + 1, str: text.slice(i, j + 1) }; }
+  }
+  return null;
+}
+function parseOne(text) {
+  const r = nextObject(text, 0);
+  if (!r) return null;
+  try { return JSON.parse(r.str); } catch (e) { return null; }
+}
+function sanitize(text, a) {
+  let s = String(text == null ? '' : text).replace(/\r/g, '').trim();
+  s = s.replace(new RegExp('^' + a.name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\s*[:：]\\s*'), '');
+  s = s.replace(/\n{3,}/g, '\n\n').trim();
+  return len(s) > 600 ? [...s].slice(0, 600).join('') : s;
+}
+function cleanTo(to) {
+  if (!Array.isArray(to)) return [];
+  const ids = [...new Set(to.map(Number).filter((n) => Number.isInteger(n) && n >= 1 && n < S.nextId))].sort((x, y) => x - y);
+  return ids.slice(-4);
+}
+function onChunkText(call, text) {
+  if (call.dead) return;
+  if (call.first === null && text.trim()) call.first = performance.now();
+  for (;;) {
+    const r = nextObject(text, call.consumed);
+    if (!r) break;
+    call.consumed = r.end;
+    let obj = null;
+    try { obj = JSON.parse(r.str); } catch (e) { continue; }
+    if (obj && typeof obj === 'object') handleObject(call, obj);
+  }
+}
+function handleObject(call, obj) {
+  const a = call.agent;
+  if (call.base === null) call.base = elapsed();
+  call.lines++;
+  if (Array.isArray(obj.posts)) obj.posts.forEach((p, i) => schedule(call, { at: p.at != null ? p.at : i * 2, to: p.to || p.reply_to, text: p.text }));
+  if (typeof obj.text === 'string') schedule(call, obj);
+  if (obj.read != null) {
+    a.memo = String(typeof obj.read === 'string' ? obj.read : JSON.stringify(obj.read)).slice(0, 240);
+    a.reads.push({ t: elapsed(), text: a.memo });
+  }
+  if (typeof obj.vote === 'string' && players().includes(obj.vote) && obj.vote !== a.name) a.lean = obj.vote;
+  if (obj.silence) a.reads.push({ t: elapsed(), text: '(書かない) ' + String(obj.silence).slice(0, 120) });
+}
+function schedule(call, obj) {
+  const a = call.agent;
+  const text = sanitize(obj.text, a);
+  if (!text) return;
+  const mine = S.posts.filter((p) => p.speaker === a.name).slice(-5).map((p) => p.text).concat(a.queue.map((q) => q.text));
+  if (mine.includes(text)) return;
+  const t = elapsed();
+  const at = clamp(Number(obj.at) || 0, 0, HORIZON);
+  const typing = THINK + Math.min(len(text) / S.cfg.cps, TYPE_CAP);
+  const want = (call.base == null ? t : call.base) + at;
+  const start = Math.max(t, want - typing, a.nextFree);
+  const due = start + typing;
+  if (due > S.duration - 0.3) return;
+  a.nextFree = due + 0.2;
+  call.posts++;
+  a.queue.push({ start, due, text, to: cleanTo(obj.to), reqAt: call.tStart });
+}
+
+/* ---------- 画面 ---------- */
+const logEl = $('log');
+function stick() { logEl.scrollTop = logEl.scrollHeight; }
+function addNote(text) {
+  logEl.append(el('div', 'sys', text));
+  stick();
+}
+function renderPost(p) {
+  const row = el('div', 'line' + (p.you ? ' you' : ''));
+  const meta = el('span', 'meta');
+  meta.append(el('b', '', '#' + p.id), document.createTextNode(fmt(p.t)));
+  const nm = el('span', 'nm', p.speaker); nm.style.color = colorOf(p.speaker); nm.title = p.speaker;
+  const tx = el('span', 'tx');
+  if (p.to && p.to.length) {
+    const re = el('span', 're', '↩' + p.to.map((id) => '#' + id).join(' '));
+    re.title = p.to.map((id) => { const q = S.posts.find((x) => x.id === id); return q ? '#' + id + ' ' + q.speaker + ': ' + q.text.split('\n')[0].slice(0, 60) : ''; }).join('\n');
+    tx.append(re, document.createTextNode(' '));
+  }
+  tx.append(document.createTextNode(p.text));
+  row.append(meta, nm, tx);
+  logEl.append(row);
+  stick();
+}
+function addPost(speaker, text, to, t, reqAt) {
+  const p = { id: S.nextId++, t, speaker, text, to: to || [], you: speaker === S.user, reqAt: reqAt == null ? t : reqAt };
+  S.posts.push(p);
+  renderPost(p);
+  if (p.you) {
+    for (const a of S.agents) trimQueue(a, t);
+  } else if (BAN.test(text)) {
+    S.flags.ban++;
+  }
+  return p;
+}
+function statusOf(a, t) {
+  if (a.call) return '考え中 ' + ((performance.now() - a.call.start) / 1000).toFixed(1) + '秒';
+  if (a.queue.length && a.queue[0].start <= t) return '入力中…';
+  if (a.queue.length) return '発言待ち';
+  return a.error ? '待機(' + a.error + ')' : '待機';
+}
+function updateHud(t) {
+  const rem = Math.max(0, S.duration - t);
+  const tm = $('timer');
+  tm.textContent = fmt(Math.ceil(rem));
+  tm.classList.toggle('low', rem <= 10);
+  $('at').textContent = '@' + Math.ceil(rem);
+  $('barfill').style.transform = 'scaleX(' + (rem / S.duration).toFixed(4) + ')';
+  const chips = $('chips');
+  chips.textContent = '';
+  for (const a of S.agents) {
+    const chip = el('div', 'chip');
+    const b = el('b', '', a.name); b.style.color = colorOf(a.name);
+    chip.append(b, document.createTextNode(statusOf(a, t)));
+    const s = a.stat;
+    chip.append(el('span', 'mut', '呼出 ' + s.n + '回' + (s.last != null ? ' · 直近 ' + s.last.toFixed(1) + '秒' : '')));
+    chips.append(chip);
+  }
+  const typing = S.agents.filter((a) => a.queue.length && a.queue[0].start <= t).map((a) => a.name);
+  $('typing').textContent = typing.length ? typing.join('、') + ' が入力中…' : '';
+}
+
+/* ---------- 呼び出しの管理 ---------- */
+function newCall(a, type) {
+  return { id: ++S.seq, agent: a, type, start: performance.now(), tStart: elapsed(), ctl: new AbortController(), first: null, consumed: 0, base: null, lines: 0,
+    dead: false, aborted: false, stale: false, posts: 0, end: null, applied: null, error: null, chars: 0, head: '', promptChars: 0, tier: S.cfg.tier };
+}
+function closeCall(call, res) {
+  call.end = performance.now(); call.applied = res.modelTierApplied || null; call.chars = res.text.length;
+  call.head = res.text.slice(0, 200); call.truncated = !!res.truncated;
+  S.calls.push(call);
+  const st = call.agent.stat;
+  st.n++; st.last = (call.end - call.start) / 1000;
+}
+function errorText(code) {
+  switch (code) {
+    case 'not_granted': return 'Claude の利用が許可されませんでした。';
+    case 'sampling_disabled': case 'capability_disabled': case 'not_declared': case 'capability_removed': return 'この環境では Claude を呼べません。';
+    case 'rate_limited': return '利用が混み合っています。少し待ってから、もう一度。';
+    case 'session_expired': return 'ログインし直してください。';
+    default: return '呼び出しに失敗しました(' + code + ')。';
+  }
+}
+const FATAL = new Set(['not_granted', 'sampling_disabled', 'capability_disabled', 'not_declared', 'capability_removed', 'session_expired']);
+function failCall(call, e) {
+  const code = (e && e.code) || 'upstream_error';
+  call.end = performance.now(); call.error = code; call.head = String((e && (e.text || e.message)) || '').slice(0, 200);
+  S.calls.push(call);
+  const a = call.agent;
+  if (a.call === call) a.call = null;
+  a.error = code;
+  a.stat.n++;
+  if (code === 'cancelled') return;
+  if (FATAL.has(code)) { endTalk(errorText(code)); return; }
+  a.backoff = elapsed() + (code === 'rate_limited' ? 10 : 5);
+  addNote(a.name + ': ' + errorText(code));
+}
+function abortCall(a) {
+  const c = a.call;
+  if (!c) return;
+  c.dead = true; c.aborted = true; c.end = performance.now();
+  S.calls.push(c);
+  a.call = null;
+  try { c.ctl.abort(); } catch (e) { /* もう終わっている */ }
+}
+
+/* ---------- AI の発言の進行 ---------- */
+function flush(a, t) {
+  while (a.queue.length && a.queue[0].due <= t) {
+    const item = a.queue.shift();
+    addPost(a.name, item.text, item.to, t, item.reqAt);
+    if (item.opener) a.opening = false; else a.aborts = 0;
+  }
+}
+// 新しい発言があったとき、打ち始めた1件だけ残して、あとの予定は捨てる(見ていない発言への返しになってしまうため)
+function trimQueue(a, t) {
+  const keep = a.queue.filter((q, i) => q.opener || (i === 0 && q.start <= t));   // 最初の挨拶は、必ず出す
+  a.queue = keep;
+  a.nextFree = keep.length ? keep[keep.length - 1].due + 0.2 : t;
+}
+function maybeRequest(a, t) {
+  if (S.duration - t < 2 || t < a.backoff) return;
+  if (S.agents.some((x) => x.opening)) return;                  // 挨拶が出そろうまで、モデルは呼ばない
+  if (a.kind === 'casual' && a.lastReq < -50) {                 // シンの最初の呼び出しは、ブンの最初の呼び出しが終わるのを待つ(同じ起点を置かないため)
+    const lead = S.agents[0];
+    if (!(lead.lastReq > -50 && !lead.call) && t < 4) return;
+  }
+  const since = t - a.lastReq;
+  const unseen = S.posts.filter((p) => p.id > a.seenId && p.speaker !== a.name);   // 前回の依頼のあとに出た、他の人の発言
+  if (unseen.length) {
+    const kind = unseen.some((p) => p.you || p.text.includes(a.name)) ? 'user' : 'ai';
+    const lastAt = unseen[unseen.length - 1].t, firstAt = unseen[0].t;
+    if (a.lastReq > -50 && t - lastAt < DEBOUNCE[kind] && t - firstAt < MAX_WAIT) return;    // 続けて来るかもしれないので、少し待つ(最初の呼び出しは待たない)
+    let justAborted = false;
+    if (a.call) {
+      const age = performance.now() - a.call.start;
+      const young = age < FAST_CALL * 1000 && (a.call.posts === 0 || (kind === 'user' && age < YOUNG_CALL * 1000));
+      if (young && a.aborts < MAX_ABORTS) { a.aborts++; abortCall(a); justAborted = true; }   // 新しい発言を見ていない若い呼び出しは、見せ直して作り直す
+      else { a.call.stale = true; return; }                                                   // 出し始めた・遅い呼び出しは、終わってから続ける
+    }
+    if (!justAborted && since < MIN_GAP[kind]) return;
+    if (!a.keepQueue) trimQueue(a, t);
+    a.keepQueue = false;
+    requestChunk(a, t);
+    return;
+  }
+  if (a.call || a.queue.length) return;
+  if (since < QUIET_GAP[a.kind]) return;                        // 誰も話さないときは、自分から話す
+  requestChunk(a, t);
+}
+async function requestChunk(a, t) {
+  const horizon = Math.max(4, Math.min(HORIZON, Math.floor(S.duration - t)));
+  const call = newCall(a, 'chunk');
+  const fresh = S.posts.filter((p) => p.id > a.seenId && p.speaker !== a.name);   // この呼び出しで初めて見る発言
+  a.call = call; a.lastReq = t; a.seenId = S.nextId - 1; a.error = null;
+  const prompt = chunkPrompt(a, t, horizon, fresh);
+  call.promptChars = prompt.length;
+  try {
+    const res = await ask(a, prompt, { signal: call.ctl.signal, modelTier: S.cfg.tier, cache: false, onText: (u) => onChunkText(call, u.text) }, { type: 'chunk' });
+    if (call.dead) return;
+    onChunkText(call, res.text);
+    closeCall(call, res);
+    if (call.stale) a.keepQueue = true;
+    if (call.lines === 0) { a.backoff = elapsed() + 8; addNote(a.name + ': 出力を読み取れませんでした(診断に先頭を記録)'); }
+  } catch (e) {
+    if (call.dead) return;
+    failCall(call, e);
+  } finally {
+    if (a.call === call) a.call = null;
+  }
+}
+function tick() {
+  if (S.phase !== 'talk') return;
+  const t = elapsed();
+  if (t >= S.duration) { endTalk(); return; }
+  for (const a of S.agents) { flush(a, t); maybeRequest(a, t); }
+  updateHud(t);
+}
+
+/* ---------- 開始 ---------- */
+function makeAgent(name, kind, role) {
+  return { name, kind, role, call: null, queue: [], nextFree: 0, lastReq: -99, seenId: 0, aborts: 0, keepQueue: false,
+    backoff: 0, memo: '', lean: null, reads: [], error: null, opening: false, stat: { n: 0, last: null } };
+}
+function assignRoles(cfg) {
+  const seats = ['you', 'bun', 'shin'];
+  const wolf = cfg.assign === 'random' ? seats[Math.floor(Math.random() * 3)] : cfg.assign;
+  return { you: wolf === 'you' ? '人狼' : '村人', bun: wolf === 'bun' ? '人狼' : '村人', shin: wolf === 'shin' ? '人狼' : '村人' };
+}
+async function connect() {
+  setConn('Claude に接続しています。許可の確認が出たら承認してください…');
+  const t0 = performance.now();
+  try {
+    await S.sample('「OK」とだけ返す。', { modelTier: 'quick', cache: false });
+    S.warmMs = performance.now() - t0;
+    return true;
+  } catch (e) {
+    setConn(errorText((e && e.code) || 'upstream_error') + (S.ready ? ' デモ(定型応答)なら動かせます。' : ''));
+    return false;
+  }
+}
+async function startGame(forceDemo) {
+  if (S.phase !== 'setup') return;
+  S.phase = 'connecting';
+  $('startBtn').disabled = true;
+  S.cfg = readSettings();
+  store.set(S.cfg);
+  S.demo = !!forceDemo || !S.sample;
+  if (!S.demo) {
+    const ok = await connect();
+    if (!ok) { S.phase = 'setup'; $('startBtn').disabled = false; offerDemo(); return; }
+  }
+  S.user = S.cfg.name; S.duration = S.cfg.dur;
+  S.posts = []; S.nextId = 1; S.calls = []; S.votes = {}; S.flags = { ban: 0 }; S.userVote = null; S.finished = false;
+  const roles = assignRoles(S.cfg);
+  S.roles = { [S.user]: roles.you, [NAME.strong]: roles.bun, [NAME.casual]: roles.shin };
+  S.agents = [makeAgent(NAME.strong, 'strong', roles.bun), makeAgent(NAME.casual, 'casual', roles.shin)];
+  logEl.textContent = '';
+  addNote('役職設定【人狼-1,村人-3】 / 初日犠牲者さんが死亡しました / 恐ろしい夜が明け、朝になりました。');
+  $('roleBadge').textContent = 'あなた: ' + roles.you + (S.demo ? ' / デモ' : '');
+  $('setup').hidden = true; $('room').hidden = false; $('vote').hidden = true; $('result').hidden = true;
+  $('chatForm').hidden = false; $('msg').disabled = false;
+  S.t0 = performance.now();
+  S.phase = 'talk';
+  scheduleOpeners();
+  updateHud(0);
+  S.timer = setInterval(tick, TICK_MS);
+  tick();
+  $('msg').focus();
+}
+function scheduleOpeners() {
+  S.agents.forEach((a, i) => {
+    const pool = (OPENERS[a.kind][S.cfg.register] || OPENERS[a.kind]['タメ口']);
+    const text = pool[Math.floor(Math.random() * pool.length)];
+    const start = 0.05 + (i === 0 ? 0 : 0.5 + Math.random() * 0.5);
+    const due = start + 0.1 + len(text) / S.cfg.cps;
+    a.queue.push({ start, due, text, to: [], reqAt: 0, opener: true });
+    a.nextFree = due + 0.2;
+    a.opening = true;
+  });
+}
+function offerDemo() {
+  const c = $('conn');
+  c.textContent += ' ';
+  const b = el('button', '', 'デモで試す');
+  b.type = 'button';
+  b.addEventListener('click', () => { b.remove(); startGame(true); });
+  c.append(b);
+}
+$('startBtn').addEventListener('click', () => startGame(false));
+$('chatForm').addEventListener('submit', (e) => {
+  e.preventDefault();
+  if (S.phase !== 'talk') return;
+  const text = $('msg').value.trim();
+  if (!text) return;
+  $('msg').value = '';
+  addPost(S.user, text.slice(0, 300), [], elapsed());
+  updateHud(elapsed());
+});
+$('endBtn').addEventListener('click', () => endTalk());
+
+/* ---------- 投票と結果 ---------- */
+function endTalk(reason) {
+  if (S.phase !== 'talk') return;
+  S.phase = 'vote';
+  clearInterval(S.timer);
+  for (const a of S.agents) { if (a.call) abortCall(a); a.queue.length = 0; }
+  S.tEnd = Math.min(S.duration, elapsed());
+  if (reason) addNote(reason);
+  addNote('投票時間になりました。話すのをやめてください。');
+  updateHud(S.tEnd);
+  $('typing').textContent = '';
+  $('chatForm').hidden = true;
+  const box = $('voteBtns');
+  box.textContent = '';
+  for (const n of players().filter((x) => x !== S.user)) {
+    const b = el('button', '', n + ' に入れる');
+    b.type = 'button';
+    b.addEventListener('click', () => { S.userVote = n; for (const x of box.querySelectorAll('button')) x.disabled = true; $('voteStatus').textContent = n + ' に投票した。AI の投票を待っています…'; maybeFinish(); });
+    box.append(b);
+  }
+  $('voteStatus').textContent = 'AI が投票先を決めています…';
+  $('vote').hidden = false;
+  S.agents.forEach(askVote);
+}
+async function askVote(a) {
+  const cand = players().filter((n) => n !== a.name);
+  const call = newCall(a, 'vote');
+  let pick = null, why = '';
+  try {
+    const res = await ask(a, votePrompt(a, cand), { signal: call.ctl.signal, modelTier: S.cfg.tier, cache: false }, { type: 'vote', cand });
+    closeCall(call, res);
+    const obj = parseOne(res.text);
+    if (obj && cand.includes(obj.vote)) { pick = obj.vote; why = String(obj.why || '').slice(0, 60); }
+  } catch (e) {
+    failCall(call, e);
+  }
+  if (!pick) { pick = cand[Math.floor(Math.random() * cand.length)]; why = '(票先を読み取れなかったため、抽選)'; }
+  S.votes[a.name] = { to: pick, why };
+  maybeFinish();
+}
+function maybeFinish() {
+  if (S.finished || S.userVote == null || S.agents.some((a) => !S.votes[a.name])) return;
+  S.finished = true;
+  S.phase = 'result';
+  const all = { [S.user]: { to: S.userVote, why: '' }, ...S.votes };
+  const tally = {};
+  for (const n of players()) tally[n] = 0;
+  for (const v of Object.values(all)) tally[v.to]++;
+  const top = Math.max(...Object.values(tally));
+  const tied = players().filter((n) => tally[n] === top);
+  const executed = tied[Math.floor(Math.random() * tied.length)];
+  const wolf = players().find((n) => S.roles[n] === '人狼');
+  S.result = { all, tally, executed, tied: tied.length > 1, wolf, village: executed === wolf };
+  $('vote').hidden = true;
+  renderResult();
+}
+
+function computeMetrics() {
+  const dur = S.duration;
+  const per = {};
+  for (const a of S.agents) {
+    const mine = S.calls.filter((c) => c.agent === a && c.type === 'chunk');
+    const done = mine.filter((c) => c.end && !c.aborted && !c.error);
+    const tot = done.map((c) => (c.end - c.start) / 1000);
+    const ttft = done.filter((c) => c.first).map((c) => (c.first - c.start) / 1000);
+    per[a.name] = {
+      calls: mine.length, done: done.length, aborted: mine.filter((c) => c.aborted).length, failed: mine.filter((c) => c.error && c.error !== 'cancelled').length,
+      ttft: avg(ttft), total: avg(tot), max: tot.length ? Math.max(...tot) : null,
+      tier: [...new Set(done.map((c) => c.applied).filter(Boolean))].map((x) => TIER_JA[x] || x).join('/') || '—',
+      promptK: done.length ? Math.round(avg(done.map((c) => c.promptChars)) / 1000) : null,
+    };
+  }
+  const react = (names) => {
+    const out = []; let wait = null;
+    for (const p of S.posts) {
+      if (p.you) { if (wait === null) wait = p.t; }
+      else if (wait !== null && names.includes(p.speaker) && p.reqAt >= wait) { out.push(p.t - wait); wait = null; }
+    }
+    return out;
+  };
+  const vol = {};
+  const totalChars = S.posts.reduce((s, p) => s + len(p.text), 0) || 1;
+  for (const n of players()) {
+    const ps = S.posts.filter((p) => p.speaker === n);
+    const chars = ps.reduce((s, p) => s + len(p.text), 0);
+    vol[n] = { n: ps.length, chars, share: chars / totalChars, perMin: chars / (dur / 60) };
+  }
+  return { per, vol, reactAny: react(S.agents.map((a) => a.name)), reactStrong: react([NAME.strong]) };
+}
+function table(head, rows, numFrom, wrapCol) {
+  const wrap = el('div', 'scroll-x');
+  const t = el('table');
+  const hr = el('tr');
+  head.forEach((h, i) => hr.append(el('th', i >= numFrom ? 'num' : '', h)));
+  t.append(hr);
+  for (const r of rows) { const tr = el('tr'); r.forEach((c, i) => tr.append(el('td', i === wrapCol ? 'wrap' : (i >= numFrom ? 'num' : ''), String(c)))); t.append(tr); }
+  wrap.append(t);
+  return wrap;
+}
+function renderResult() {
+  const r = S.result, m = computeMetrics();
+  const h = $('resultH');
+  h.textContent = r.village ? '人狼が全滅しました。村人チームの勝利' : '人狼が村人の数より多くなりました。人狼チームの勝利';
+  h.className = 'result-h ' + ((S.roles[S.user] === '人狼') === r.village ? 'lose' : 'win');
+  const body = $('resultBody');
+  body.textContent = '';
+  const p1 = el('p', '', '処刑: ' + r.executed + '(' + S.roles[r.executed] + ')' + (r.tied ? ' 同数のため抽選' : ''));
+  body.append(p1);
+  body.append(table(['', '役職', '投票先', '得票', '理由'], players().map((n) => [n, S.roles[n], r.all[n].to, r.tally[n], r.all[n].why || '—']), 99, 4));
+
+  body.append(el('h2', 'mt', '速さ'));
+  const rows = S.agents.map((a) => { const x = m.per[a.name]; return [a.name, x.calls, x.aborted + '/' + x.failed, f1(x.ttft), f1(x.total), f1(x.max), x.tier, x.promptK == null ? '—' : x.promptK + 'k字']; });
+  body.append(table(['AI', '呼出', '中断/失敗', '最初の文字まで(秒)', '全体(秒)', '最大(秒)', '実際の応答の階級', '入力'], rows, 1));
+  const rs = (xs) => xs.length ? '平均 ' + f1(avg(xs)) + '秒 / 最大 ' + f1(Math.max(...xs)) + '秒(' + xs.length + '回)' : '—';
+  body.append(el('p', 'note', '反応時間(あなたの発言から、AI の最初の発言が出るまで): 2人のどちらか ' + rs(m.reactAny) + ' / ブン ' + rs(m.reactStrong) + '。待ち時間・モデルの応答・打鍵の表示を含む。'));
+  if (S.warmMs != null) body.append(el('p', 'note', '接続確認(短い呼び出し1回): ' + f1(S.warmMs / 1000) + '秒'));
+
+  body.append(el('h2', 'mt', '量'));
+  const vrows = players().map((n) => { const v = m.vol[n]; return [n, v.n, v.chars, Math.round(v.share * 100) + '%', Math.round(v.perMin)]; });
+  body.append(table(['', '件数', '字数', '割合', '字/分'], vrows, 1));
+  body.append(el('p', 'note', 'B・A は、議論が動いているとき1分で120〜175字、部屋全体の4〜5割を書いた。ブンの字/分と割合の目安。口調の検査: 説明口調の語 ' + S.flags.ban + '件。最長の発言は ' + Math.max(0, ...S.posts.filter((p) => !p.you).map((p) => len(p.text))) + '字。'));
+
+  const reads = $('reads'); reads.textContent = '';
+  let any = false;
+  for (const a of S.agents) {
+    if (!a.reads.length) continue;
+    any = true;
+    const b = el('div', 'mt'); const nm = el('b', '', a.name); nm.style.color = colorOf(a.name); b.append(nm);
+    const box = el('pre', 'box', a.reads.map((x) => '[' + fmt(x.t) + '] ' + x.text).join('\n'));
+    reads.append(b, box);
+  }
+  if (!any) reads.append(el('p', 'note', '記録がない'));
+  renderDiag();
+  $('result').hidden = false;
+  $('result').scrollIntoView({ block: 'nearest' });
+}
+function diagRows() {
+  return S.calls.map((c) => ({
+    agent: c.agent.name, type: c.type, t: Number(c.tStart.toFixed(1)), tier: c.tier, applied: c.applied,
+    ttft: c.first ? Number(((c.first - c.start) / 1000).toFixed(2)) : null, total: c.end ? Number(((c.end - c.start) / 1000).toFixed(2)) : null,
+    chars: c.chars, lines: c.lines, promptChars: c.promptChars, aborted: c.aborted, error: c.error, head: c.head.slice(0, 120),
+  }));
+}
+function renderDiag() {
+  const rows = diagRows();
+  $('diagBody').textContent = '';
+  $('diagBody').append(table(['AI', '種類', '開始(秒)', '要求', '実際', '最初の文字', '全体', '出力字', '行', '中断', 'エラー'],
+    rows.map((x) => [x.agent, x.type, x.t, x.tier, x.applied || '—', x.ttft == null ? '—' : x.ttft, x.total == null ? '—' : x.total, x.chars, x.lines, x.aborted ? '○' : '', x.error || '']), 2));
+}
+
+/* ---------- コピー ---------- */
+async function copyText(text, label) {
+  const note = $('copyNote');
+  try {
+    await navigator.clipboard.writeText(text);
+    note.textContent = label + 'をコピーしました。';
+    $('fallback').hidden = true;
+  } catch (e) {
+    const ta = $('fallback');
+    ta.hidden = false; ta.value = text; ta.focus(); ta.select();
+    note.textContent = '自動でコピーできなかったので、下の欄を選択しました。コピーしてください。';
+  }
+}
+function zinroLog() {
+  const r = S.result, out = [];
+  const lines = [];
+  lines.push('鯖: ' + (r.village ? '人狼が全滅しました!【村人チーム】の勝利です!' : '人狼が村人の数より多くなりました!【人狼チーム】の勝利です!'));
+  lines.push('鯖: 【投票結果】\n' + players().map((n) => n + '(' + r.tally[n] + '票)の投票先→' + r.all[n].to).join('\n') + '\n投票の結果【' + r.executed + '】さんが処刑されます');
+  lines.push('鯖: ' + r.executed + 'さんが死亡しました');
+  for (const n of [...players()].reverse()) lines.push(n + '→GM: 投票@' + n + '→' + r.all[n].to);
+  lines.push('鯖: 投票時間になりました。話すのをやめてください。');
+  for (const p of [...S.posts].reverse()) lines.push(p.speaker + ': ' + p.text);
+  lines.push('鯖: 恐ろしい夜が明け、朝になりました。', '鯖: 初日犠牲者さんが死亡しました', '鯖: 夜になりました…役職の人は能力を実行してください', '鯖: ゲームを開始します', '鯖: 役職設定【人狼-1,村人-3,役欠け:あり】');
+  for (const n of [...players()].reverse()) lines.push('鯖→' + n + ': あなたは【' + S.roles[n] + '】です');
+  return out.concat(lines).join('\n');
+}
+$('copyLog').addEventListener('click', () => { if (S.result) copyText(zinroLog(), 'ログ'); });
+$('copyDiag').addEventListener('click', () => {
+  copyText(JSON.stringify({ settings: S.cfg, demo: S.demo, warmMs: S.warmMs, duration: S.duration, calls: diagRows(), flags: S.flags }, null, 1), '診断');
+});
+
+/* ---------- もう一度 ---------- */
+$('again').addEventListener('click', () => {
+  clearInterval(S.timer);
+  for (const a of S.agents) if (a.call) abortCall(a);
+  S.phase = 'setup'; S.posts = []; S.agents = []; S.calls = []; S.result = null;
+  $('room').hidden = true; $('vote').hidden = true; $('result').hidden = true; $('setup').hidden = false;
+  $('startBtn').disabled = false;
+  $('copyNote').textContent = ''; $('fallback').hidden = true;
+  setConn(S.sample ? 'Claude に接続できます。' : 'Claude を呼べません(Claude のアプリ内の表示で開くと動きます)。いまはデモ(定型応答。AI は動いていない)で動きます。');
+});
+
+/* テスト用の読み出し口(画面には出ない) */
+window.__room = { S, endTalk, tick, chunkPrompt, votePrompt, makeAgent, nextObject, onChunkText, newCall };
+})();
+</script>

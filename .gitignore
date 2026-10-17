@@ -1,0 +1,9 @@
+# 生ログと、そこから作る中間ファイルは git に載せない(他のプレイヤーの発言を含むため)
+logs/raw/
+logs/normalized/
+logs/private/
+logs/sessions/
+
+__pycache__/
+*.pyc
+.env
