@@ -32,7 +32,7 @@ class RoomTest(unittest.TestCase):
 
     def test_prompts_are_embedded_per_role(self):
         data = embedded(self.html)
-        self.assertEqual(set(data), {"strong", "casual"})
+        self.assertEqual(set(data), {"strong", "casual", "judge"})
         for role in ROLES:
             strong, casual = data["strong"][role], data["casual"][role]
             self.assertIn(f"役職は{role}", strong)
@@ -74,6 +74,18 @@ class RoomTest(unittest.TestCase):
         plain = as_text(build_system(ROOT, "{me}", "村人", "{register}", output_format="timed"))
         room = embedded(self.html)["strong"]["村人"]
         self.assertGreater(len(room), len(plain))
+
+    def test_the_judge_prompt_is_neutral_and_has_the_deciding_vote(self):
+        judge = embedded(self.html)["judge"]
+        self.assertEqual(set(judge), {"村人"})  # 判定役は、人狼にならない
+        text = judge["村人"]
+        self.assertIn("どちらにも肩入れしない", text)
+        self.assertIn("あなたの1票が、決め手になる", text)
+        self.assertIn("口の巧さ、発言量、自信の強さ、先に言ったかどうかでは決めない", text)
+        self.assertIn("1行に1つの JSON", text)
+        self.assertIn("{me}", text)
+        self.assertIn("{register}", text)
+        self.assertIn("内部の番号(#12 など)は書かない", text)
 
     def test_casual_prompt_fills_the_role_only(self):
         text = casual_prompt("人狼")

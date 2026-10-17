@@ -114,16 +114,24 @@ textarea.fb { width: 100%; height: 120px; margin-top: 8px; font: 12px/1.5 var(--
 <div id="app">
   <header>
     <h1>4A練習ルーム</h1>
-    <p class="sub">人狼1・村人2+初日犠牲者(ダミー)。AI 2人を相手に、議論の長さを25秒きざみ(最大300秒)で選んで話し、投票する。</p>
+    <p class="sub" id="sub">人狼1・村人2+初日犠牲者(ダミー)。AI 2人を相手に、議論の長さを25秒きざみ(最大300秒)で選んで話し、投票する。</p>
   </header>
 
   <section id="setup" class="card" aria-labelledby="setupH">
     <h2 id="setupH">部屋の設定</h2>
     <ul class="who">
       <li><b style="color:var(--ai1)">ブン</b> B・A の動きを写したボット</li>
-      <li><b style="color:var(--ai2)">シン</b> ふつうの参加者</li>
+      <li><b style="color:var(--ai2)">シン</b> <span id="shinRole">ふつうの参加者</span></li>
       <li><b style="color:var(--you)">あなた</b> 人間</li>
     </ul>
+    <div class="field">
+      <label for="mode">場の形</label>
+      <select id="mode">
+        <option value="three">ふつう: AI 2人と話す</option>
+        <option value="judge">判定役: ブンと対話し、シンは中立の判定役</option>
+      </select>
+      <p class="hint" id="modeHint">ブンとシンが、それぞれ話す。</p>
+    </div>
     <div class="field">
       <label for="dur">議論の長さ</label>
       <div class="dur"><input id="dur" type="range" min="25" max="300" step="25" value="100"><output id="durOut" for="dur">100秒</output></div>
@@ -216,7 +224,7 @@ const FAST_CALL = 6;                   // まだ発言を出していない呼�
 const YOUNG_CALL = 3;                  // あなたの発言・名前の呼びかけのときは、発言を出し始めていても、経過がこれ未満なら作り直す
 const MAX_ABORTS = 2;                  // 続けて中断してよい回数。これを超えたら、終わるのを待つ(返事が出なくなるのを防ぐ)
 const MIN_GAP = { user: 0.8, ai: 2.5 };  // 前の呼び出しからの最短間隔(秒)。あなたの発言と名前の呼びかけは短く、AI どうしは長く
-const QUIET_GAP = { strong: 6, casual: 9 };   // 誰も話さないとき、自分から話す間隔(秒)
+const QUIET_GAP = { strong: 6, casual: 9, judge: 14 };   // 誰も話さないとき、自分から話す間隔(秒)
 const THINK = 0.5;                     // 打ち始めるまでの間(秒)
 const TYPE_CAP = 3;                    // 打つ時間の上限(秒)。長い発言は、打たずに貼る人もいるので、遅れを3秒までにする
 const OPENERS = {                      // ゲームが始まったらすぐ言う最初の発言。モデルを待たない。挨拶だけが多く、たまに軽い一言を足す
@@ -228,6 +236,7 @@ const OPENERS = {                      // ゲームが始まったらすぐ言�
     'タメ口': ['おは', 'おは', 'おは', 'おはよう', 'おはよー', 'おはよ〜', 'おは。ねむ'],
     '敬語': ['おはようございます', 'おはようございます', 'おはようございます。'],
   },
+  judge: { 'タメ口': ['おはよう', 'おは'], '敬語': ['おはようございます'] },
 };
 const BAN = /つまり|例えば|たとえば|ではないでしょうか|ということです|という点|ご自身/;
 const SETTINGS_KEY = 'room4a-settings';
@@ -285,7 +294,7 @@ function readSettings() {
   let name = $('uname').value.trim().slice(0, 8) || 'アキラ';
   if (name === NAME.strong || name === NAME.casual) name += 'さん';
   return {
-    dur, name, assign: $('assign').value, register: $('reg').value, cps: Number($('speed').value) || 9,
+    dur, name, assign: $('assign').value, register: $('reg').value, cps: Number($('speed').value) || 9, mode: $('mode').value,
     tier: (document.querySelector('input[name=tier]:checked') || { value: 'quick' }).value,
   };
 }
@@ -293,6 +302,7 @@ function applySettings(c) {
   if (!c) return;
   if (c.dur) { $('dur').value = c.dur; }
   if (c.name) $('uname').value = c.name;
+  if (c.mode) $('mode').value = c.mode;
   if (c.assign) $('assign').value = c.assign;
   if (c.register) $('reg').value = c.register;
   if (c.cps) $('speed').value = String(c.cps);
@@ -300,11 +310,27 @@ function applySettings(c) {
   $('durOut').textContent = $('dur').value + '秒';
 }
 $('dur').addEventListener('input', () => { $('durOut').textContent = $('dur').value + '秒'; });
+// 判定役の形: シンは、どちらにも肩入れしない判定役で、人狼にはならない
+function syncMode() {
+  const judge = $('mode').value === 'judge';
+  $('shinRole').textContent = judge ? '判定役(どちらにも肩入れしない。口数は少ない)' : 'ふつうの参加者';
+  $('modeHint').textContent = judge
+    ? 'あなたとブンが議論し、シンは聞いて、最後に判定する(3人戦の第三者)。人狼は、あなたかブン。'
+    : 'ブンとシンが、それぞれ話す。';
+  $('sub').textContent = judge
+    ? '人狼1・村人2+初日犠牲者(ダミー)。ブンと対話し、判定役のシンが最後に判定する。議論の長さは25秒きざみ(最大300秒)。'
+    : '人狼1・村人2+初日犠牲者(ダミー)。AI 2人を相手に、議論の長さを25秒きざみ(最大300秒)で選んで話し、投票する。';
+  const opt = $('assign').querySelector('option[value=shin]');
+  opt.disabled = judge;
+  if (judge && $('assign').value === 'shin') $('assign').value = 'random';
+}
+$('mode').addEventListener('change', syncMode);
 applySettings(store.get());
+syncMode();
 
 /* ---------- プロンプト ---------- */
 function sysPrompt(a) {
-  const base = a.kind === 'strong' ? PROMPTS.strong[a.role] : PROMPTS.casual[a.role];
+  const base = a.kind === 'strong' ? PROMPTS.strong[a.role] : (a.kind === 'judge' ? PROMPTS.judge['村人'] : PROMPTS.casual[a.role]);
   return base.split('{me}').join(a.name).split('{register}').join(S.cfg.register);
 }
 function situation(a, t, horizon) {
@@ -318,6 +344,13 @@ function situation(a, t, horizon) {
     '- 経過: ' + Math.round(t) + '秒 / 議論は全体で' + S.duration + '秒。残り' + rem + '秒(@' + rem + ')',
     '- 発言の語調: ' + S.cfg.register,
   ];
+  if (S.cfg.mode === 'judge') {
+    const judge = S.agents.find((x) => x.kind === 'judge');
+    const rest = players().filter((n) => n !== a.name && n !== judge.name);
+    head.push(a.kind === 'judge'
+      ? '- この部屋の形: あなたは判定役。議論しているのは、' + players().filter((n) => n !== a.name).join('と') + '。どちらにも肩入れせず、最後の投票で、人狼だと思うほうに入れる'
+      : '- この部屋の形: ' + judge.name + 'は判定役で、どちらにも肩入れしない(口数は少ない)。議論の相手は ' + rest[0] + '。最後の投票で、' + judge.name + 'の判断が決め手になる');
+  }
   if (horizon) head.push('- 今回の長さ: いまから' + horizon + '秒ぶん');
   const body = ['', '# ここまでの発言(古い順。番号は返信先の指定に使う。[]は議論が始まってからの経過)', '[通知] 恐ろしい夜が明け、朝になりました。(初日犠牲者さんが死亡しました)'];
   if (!S.posts.length) body.push('(まだ誰も発言していない)');
@@ -346,7 +379,7 @@ function hints(a, t, fresh) {
   if (fresh && fresh.length) lines.push('- 新しい発言(前回の呼び出しのあと): ' + fresh.map((p) => '#' + p.id + ' ' + p.speaker).join('、') + '。それぞれに返す(挨拶・相づち・笑いだけのものは除く)');
   if (mine.length) lines.push('- 挨拶は最初に済ませた。「おはよう」を言い直さない');
   if (S.posts.every((p) => len(p.text) <= 14 && /おは|こんにちは|こんばんは|よろしく/.test(p.text))) {
-    lines.push(a.kind === 'strong' ? '- 今のところ全員が挨拶だけ。起点(名前や朝一やゲームの進め方への観察、軽い冗談)を1つ置いてよい。「誰を狼で見てる？」のような読みの問いは、材料が出るまで出さない。他の人が先に置いたら、それに返す' : '- 今のところ全員が挨拶だけ。話題がなければ、短い雑談や感想で場に乗る。ほかの人が話題を出したら、それに返す');
+    lines.push(a.kind === 'judge' ? '- 今のところ全員が挨拶だけ。判定役は、様子を見る(書かなくてよい)' : a.kind === 'strong' ? '- 今のところ全員が挨拶だけ。起点(名前や朝一やゲームの進め方への観察、軽い冗談)を1つ置いてよい。「誰を狼で見てる？」のような読みの問いは、材料が出るまで出さない。他の人が先に置いたら、それに返す' : '- 今のところ全員が挨拶だけ。話題がなければ、短い雑談や感想で場に乗る。ほかの人が話題を出したら、それに返す');
   }
   const last30 = S.posts.filter((p) => p.t >= t - 30);
   lines.push('- 直近30秒の部屋の発言: ' + last30.length + '件(うち自分 ' + last30.filter((p) => p.speaker === me).length + '件)');
@@ -391,7 +424,9 @@ async function demoAsk(a, meta, opts) {
     const strong = ['おはよう', '雑談は短めでいい。誰から見る？', (last ? last.speaker : 'みんな') + 'はどこで差をつけて決めてる？', 'それ、理由も聞きたい'];
     const casual = ['おは', 'よろしく', 'なんとなく静かな人が怪しい気がする', 'そうなの？'];
     const pool = a.kind === 'strong' ? strong : casual;
-    objs = [{ read: '(デモ)定型応答。AI は呼んでいない', vote: null }, { at: 1, to: last ? [last.id] : [], text: pool[mine % pool.length] }];
+    objs = a.kind === 'judge'
+      ? [{ read: '(デモ)定型応答。AI は呼んでいない', vote: null }, { silence: '(デモ)判定役は様子を見る' }]
+      : [{ read: '(デモ)定型応答。AI は呼んでいない', vote: null }, { at: 1, to: last ? [last.id] : [], text: pool[mine % pool.length] }];
   }
   await sleep(500 + Math.random() * 500, sig);
   let text = '';
@@ -529,7 +564,7 @@ function updateHud(t) {
   chips.textContent = '';
   for (const a of S.agents) {
     const chip = el('div', 'chip');
-    const b = el('b', '', a.name); b.style.color = colorOf(a.name);
+    const b = el('b', '', a.name + (a.kind === 'judge' ? '(判定役)' : '')); b.style.color = colorOf(a.name);
     chip.append(b, document.createTextNode(statusOf(a, t)));
     const s = a.stat;
     chip.append(el('span', 'mut', '呼出 ' + s.n + '回' + (s.last != null ? ' · 直近 ' + s.last.toFixed(1) + '秒' : '')));
@@ -597,9 +632,23 @@ function trimQueue(a, t) {
   a.queue = keep;
   a.nextFree = keep.length ? keep[keep.length - 1].due + 0.2 : t;
 }
+// 判定役は、呼ばれたとき、発言がたまったとき、長く静かなときだけ見る(口数が少ないので、呼び出しも少なくする)
+function maybeRequestJudge(a, t) {
+  const since = t - a.lastReq;
+  const unseen = S.posts.filter((p) => p.id > a.seenId && p.speaker !== a.name);
+  const called = unseen.some((p) => p.text.includes(a.name));
+  const first = a.lastReq < -50;
+  const quiet = first ? t >= 12 : since >= QUIET_GAP.judge;
+  if (a.call) { if (called) a.call.stale = true; return; }
+  if (!(called || unseen.length >= 8 || quiet)) return;
+  if (!first && since < (called ? 3 : 8)) return;
+  if (unseen.length && !called && t - unseen[unseen.length - 1].t < DEBOUNCE.ai) return;
+  requestChunk(a, t);
+}
 function maybeRequest(a, t) {
   if (S.duration - t < 2 || t < a.backoff) return;
   if (S.agents.some((x) => x.opening)) return;                  // 挨拶が出そろうまで、モデルは呼ばない
+  if (a.kind === 'judge') { maybeRequestJudge(a, t); return; }
   if (a.kind === 'casual' && a.lastReq < -50) {                 // シンの最初の呼び出しは、ブンの最初の呼び出しが終わるのを待つ(同じ起点を置かないため)
     const lead = S.agents[0];
     if (!(lead.lastReq > -50 && !lead.call) && t < 4) return;
@@ -662,8 +711,8 @@ function makeAgent(name, kind, role) {
     backoff: 0, memo: '', lean: null, reads: [], error: null, opening: false, stat: { n: 0, last: null } };
 }
 function assignRoles(cfg) {
-  const seats = ['you', 'bun', 'shin'];
-  const wolf = cfg.assign === 'random' ? seats[Math.floor(Math.random() * 3)] : cfg.assign;
+  const seats = cfg.mode === 'judge' ? ['you', 'bun'] : ['you', 'bun', 'shin'];    // 判定役のシンは、人狼にならない
+  const wolf = seats.includes(cfg.assign) ? cfg.assign : seats[Math.floor(Math.random() * seats.length)];
   return { you: wolf === 'you' ? '人狼' : '村人', bun: wolf === 'bun' ? '人狼' : '村人', shin: wolf === 'shin' ? '人狼' : '村人' };
 }
 async function connect() {
@@ -693,10 +742,10 @@ async function startGame(forceDemo) {
   S.posts = []; S.nextId = 1; S.calls = []; S.votes = {}; S.flags = { ban: 0, ref: 0 }; S.userVote = null; S.finished = false;
   const roles = assignRoles(S.cfg);
   S.roles = { [S.user]: roles.you, [NAME.strong]: roles.bun, [NAME.casual]: roles.shin };
-  S.agents = [makeAgent(NAME.strong, 'strong', roles.bun), makeAgent(NAME.casual, 'casual', roles.shin)];
+  S.agents = [makeAgent(NAME.strong, 'strong', roles.bun), makeAgent(NAME.casual, S.cfg.mode === 'judge' ? 'judge' : 'casual', roles.shin)];
   logEl.textContent = '';
   addNote('役職設定【人狼-1,村人-3】 / 初日犠牲者さんが死亡しました / 恐ろしい夜が明け、朝になりました。');
-  $('roleBadge').textContent = 'あなた: ' + roles.you + (S.demo ? ' / デモ' : '');
+  $('roleBadge').textContent = 'あなた: ' + roles.you + (S.cfg.mode === 'judge' ? ' / 判定役: ' + NAME.casual : '') + (S.demo ? ' / デモ' : '');
   $('setup').hidden = true; $('room').hidden = false; $('vote').hidden = true; $('result').hidden = true;
   $('chatForm').hidden = false; $('msg').disabled = false;
   S.t0 = performance.now();
@@ -931,6 +980,6 @@ $('again').addEventListener('click', () => {
 });
 
 /* テスト用の読み出し口(画面には出ない) */
-window.__room = { S, endTalk, tick, chunkPrompt, votePrompt, makeAgent, nextObject, onChunkText, newCall };
+window.__room = { S, endTalk, tick, chunkPrompt, votePrompt, makeAgent, nextObject, onChunkText, newCall, assignRoles, sysPrompt };
 })();
 </script>
