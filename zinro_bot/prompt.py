@@ -11,6 +11,8 @@ from pathlib import Path
 
 from zinro_learn.check import load_examples, parse_table, table_cells
 
+from .rules import PLAIN, SEER_RULESETS, apply_seer
+
 CACHE = {"type": "ephemeral"}
 ROLE_UNSET = "（ユーザーが指定する。村人か人狼）"
 ME_UNSET = "（あなたの名前）"
@@ -192,10 +194,12 @@ def build_system(
     exclude_games: tuple[str, ...] = (),
     extra_moves: tuple[str, ...] = (),
     output_format: str = "json",
+    ruleset: str = PLAIN,
 ) -> list[dict]:
     """APIの system に渡すブロック。前の2つはキャッシュする(ゲーム中は変わらない)。
     output_format は json(API の tool 用)、chat(Claude のチャットやプロジェクトに貼る用。読める形で返させる)、
-    timed(練習部屋用。1行1 JSON の、時刻つきの発言)。"""
+    timed(練習部屋用。1行1 JSON の、時刻つきの発言)。
+    ruleset は、場の形。plain は占いなしの4A(既定)、seer4 は占い入りの4A、seer6 は占い入りの6A(占いなしを前提にした行と、村人・人狼の節を置き換える)。"""
     knowledge = Path(root) / "knowledge"
     instructions = (knowledge / "bot_prompt.md").read_text(encoding="utf-8")
     if output_format == "chat":
@@ -203,6 +207,8 @@ def build_system(
     elif output_format == "timed":
         instructions = instructions[: instructions.index(FORMAT_HEADING)] + TIMED_FORMAT
         instructions = instructions.replace(*ROOM_LINE)
+    if ruleset in SEER_RULESETS:
+        instructions = apply_seer(instructions, role, ruleset)
     instructions = fill(instructions, me, role, register)
     style = (knowledge / "discussion_style.md").read_text(encoding="utf-8")
     reference = "\n".join(
@@ -216,7 +222,8 @@ def build_system(
             vocabulary_text(style),
         ]
     )
-    selected = select_examples(load_examples(knowledge / "examples.jsonl"), role, exclude_games, extra_moves)
+    example_role = "村人" if role == "占い師" else role   # 占い師は村人側。発言例は村人のものを優先する
+    selected = select_examples(load_examples(knowledge / "examples.jsonl"), example_role, exclude_games, extra_moves)
     return [
         {"type": "text", "text": instructions + "\n\n" + reference, "cache_control": CACHE},
         {"type": "text", "text": render_examples(selected), "cache_control": CACHE},

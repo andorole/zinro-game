@@ -1,24 +1,24 @@
-<title>4A練習ルーム</title>
+<title>人狼練習ルーム</title>
 <meta name="claude:viewport-fit-sides" content="cover">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&family=Noto+Sans+JP:wght@400;500;700&display=swap">
 <style>
 /* 配置: 1カラム。設定 → 議論(タイマー・チャット・入力) → 投票 → 結果と計測。チャットは、時刻つきの掲示板の形 */
 :root {
   --bg: #eceff3; --panel: #ffffff; --soft: #f4f6f9; --ink: #18212c; --muted: #5b6676; --line: #d2d8e0;
-  --accent: #1b5f8c; --accent-ink: #ffffff; --you: #1b5f8c; --ai1: #8d3a64; --ai2: #25785c; --warn: #b3412a; --ok: #25784a;
+  --accent: #1b5f8c; --accent-ink: #ffffff; --you: #1b5f8c; --ai1: #8d3a64; --ai2: #25785c; --ai3: #9a5f0c; --ai4: #6b4fa0; --warn: #b3412a; --ok: #25784a;
   --font-ui: "Noto Sans JP", "Hiragino Sans", "Yu Gothic", system-ui, sans-serif;
   --font-num: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
 }
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
     --bg: #0e131a; --panel: #161d27; --soft: #111821; --ink: #e6ebf2; --muted: #92a0b3; --line: #283240;
-    --accent: #5fb0e6; --accent-ink: #08131c; --you: #6fb8ea; --ai1: #e68ab4; --ai2: #62cfa4; --warn: #f08c6e; --ok: #5fcf8b;
+    --accent: #5fb0e6; --accent-ink: #08131c; --you: #6fb8ea; --ai1: #e68ab4; --ai2: #62cfa4; --ai3: #e9b866; --ai4: #b9a1ef; --warn: #f08c6e; --ok: #5fcf8b;
     color-scheme: dark;
   }
 }
 :root[data-theme="dark"] {
   --bg: #0e131a; --panel: #161d27; --soft: #111821; --ink: #e6ebf2; --muted: #92a0b3; --line: #283240;
-  --accent: #5fb0e6; --accent-ink: #08131c; --you: #6fb8ea; --ai1: #e68ab4; --ai2: #62cfa4; --warn: #f08c6e; --ok: #5fcf8b;
+  --accent: #5fb0e6; --accent-ink: #08131c; --you: #6fb8ea; --ai1: #e68ab4; --ai2: #62cfa4; --ai3: #e9b866; --ai4: #b9a1ef; --warn: #f08c6e; --ok: #5fcf8b;
   color-scheme: dark;
 }
 * { box-sizing: border-box; }
@@ -77,6 +77,7 @@ button:disabled { opacity: .5; cursor: not-allowed; }
 .chips { display: flex; gap: 8px; flex-wrap: wrap; }
 .chip { border: 1px solid var(--line); border-radius: 8px; padding: 4px 10px; font-size: 12.5px; background: var(--soft); min-width: 0; }
 .chip b { margin-right: 6px; }
+.chip.dead { opacity: .55; }
 .chip .mut { color: var(--muted); font-family: var(--font-num); font-size: 11.5px; margin-left: 6px; }
 
 .log { height: min(52vh, 480px); min-height: 220px; overflow-y: auto; background: var(--soft); border: 1px solid var(--line); border-radius: 8px; padding: 6px 10px; }
@@ -86,7 +87,7 @@ button:disabled { opacity: .5; cursor: not-allowed; }
 .nm { font-weight: 700; font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tx { white-space: pre-wrap; overflow-wrap: anywhere; }
 .re { color: var(--muted); font-size: 12px; cursor: help; }
-.sys { color: var(--muted); font-size: 12.5px; text-align: center; padding: 6px 0; }
+.sys { color: var(--muted); font-size: 12.5px; text-align: center; padding: 6px 0; white-space: pre-line; }
 .typing { min-height: 1.6em; font-size: 12.5px; color: var(--muted); padding: 4px 2px 0; }
 .send { display: flex; gap: 8px; margin-top: 6px; flex-wrap: wrap; }
 .send input { flex: 1 1 200px; }
@@ -117,7 +118,7 @@ textarea.fb { width: 100%; height: 120px; margin-top: 8px; font: 12px/1.5 var(--
 
 <div id="app">
   <header>
-    <h1>4A練習ルーム</h1>
+    <h1>人狼練習ルーム</h1>
     <p class="sub" id="sub">人狼1・村人2+初日犠牲者(ダミー)。AI 2人を相手に、議論の長さ(25〜660秒)を選んで話し、投票する。</p>
   </header>
 
@@ -126,8 +127,19 @@ textarea.fb { width: 100%; height: 120px; margin-top: 8px; font: 12px/1.5 var(--
     <ul class="who">
       <li><b style="color:var(--ai1)">ブン</b> B・A の動きを写したボット</li>
       <li><b style="color:var(--ai2)">シン</b> <span id="shinRole">ふつうの参加者</span></li>
+      <li id="who3" hidden><b style="color:var(--ai3)">レン</b> ふつうの参加者</li>
+      <li id="who4" hidden><b style="color:var(--ai4)">ミオ</b> ふつうの参加者</li>
       <li><b style="color:var(--you)">あなた</b> 人間</li>
     </ul>
+    <div class="field">
+      <label for="rules">配役</label>
+      <select id="rules">
+        <option value="plain">4A 占いなし: 人狼1・村人2</option>
+        <option value="seer4">4A 占い入り: 占い師1・人狼1・村人1</option>
+        <option value="seer6">6A 占い入り: 占い師1・人狼1・村人3(2日)</option>
+      </select>
+      <p class="hint" id="rulesHint"></p>
+    </div>
     <div class="field">
       <label for="mode">場の形</label>
       <select id="mode">
@@ -150,7 +162,7 @@ textarea.fb { width: 100%; height: 120px; margin-top: 8px; font: 12px/1.5 var(--
     </div>
     <div class="grid2">
       <div class="field"><label for="uname">あなたの名前</label><input id="uname" type="text" value="アキラ" maxlength="8" autocomplete="off"></div>
-      <div class="field"><label for="assign">配役</label>
+      <div class="field" id="assignField"><label for="assign">役職の割り当て</label>
         <select id="assign">
           <option value="random">ランダム</option>
           <option value="you">あなたが人狼</option>
@@ -158,6 +170,23 @@ textarea.fb { width: 100%; height: 120px; margin-top: 8px; font: 12px/1.5 var(--
           <option value="shin">シンが人狼</option>
         </select>
       </div>
+    </div>
+    <div class="grid2" id="seerRoles" hidden>
+      <div class="field"><label for="myRole">あなたの役職</label>
+        <select id="myRole"><option value="random">ランダム</option><option value="占い師">占い師</option><option value="人狼">人狼</option><option value="村人">村人</option></select>
+      </div>
+      <div class="field"><label for="bunRole">ブンの役職</label>
+        <select id="bunRole"><option value="random">ランダム</option><option value="占い師">占い師</option><option value="人狼">人狼</option><option value="村人">村人</option></select>
+      </div>
+    </div>
+    <div class="field" id="firstNightField" hidden>
+      <label for="firstNight">初日の占い</label>
+      <select id="firstNight">
+        <option value="white">お告げ: ランダムな白</option>
+        <option value="random">ランダム(黒が出ることもある)</option>
+        <option value="choose">占い師が選ぶ</option>
+      </select>
+      <p class="hint">お告げ・ランダムのときは、占い師は初日の相手を選べない。2日目以降の夜は、占い師が選ぶ。サイトの初日のルールは未確認で、確率論メモはランダムな白(お告げ)を基本にしている。</p>
     </div>
     <div class="field">
       <span class="lab" id="tierLab">AI の応答</span>
@@ -184,6 +213,14 @@ textarea.fb { width: 100%; height: 120px; margin-top: 8px; font: 12px/1.5 var(--
     <p class="hint">Claude の利用枠を使います(AI は発言のたびに呼ぶので、長い議論ほど呼び出しが増えます。「速い」で300秒なら100回以上、660秒なら数百回になることがあります)。初回は許可の確認が出ます。打鍵速度は、このページが表示を遅らせる設定で、モデルの速さではありません(長い発言は、貼る扱いで、遅れは最大3秒)。</p>
   </section>
 
+  <section id="night" class="card" aria-labelledby="nightH" hidden>
+    <h2 id="nightH">夜になりました</h2>
+    <p id="nightText" style="margin-top:0"></p>
+    <div class="vote-btns" id="nightBtns"></div>
+    <p class="note" id="nightResult" role="status"></p>
+    <div class="actions"><button id="dawnBtn" class="primary" type="button" hidden>朝を迎える(議論を始める)</button></div>
+  </section>
+
   <section id="room" class="card" aria-label="議論" hidden>
     <div class="hud">
       <div class="hud-row"><span class="timer" id="timer">1:40</span><span class="at" id="at">@100</span><span class="badge" id="roleBadge"></span></div>
@@ -201,7 +238,7 @@ textarea.fb { width: 100%; height: 120px; margin-top: 8px; font: 12px/1.5 var(--
 
   <section id="vote" class="card" aria-labelledby="voteH" hidden>
     <h2 id="voteH">投票</h2>
-    <p class="hint" style="margin-top:0">狼だと思う相手に入れる。2票を集めた人が処刑される。</p>
+    <p class="hint" style="margin-top:0">狼だと思う相手に入れる。いちばん票を集めた人が処刑される(同数なら抽選)。</p>
     <div class="vote-btns" id="voteBtns"></div>
     <p class="note" id="voteStatus" role="status"></p>
   </section>
@@ -256,8 +293,27 @@ const OPENERS = {                      // ゲームが始まったらすぐ言�
   },
   judge: { 'タメ口': ['おはよう', 'おは'], '敬語': ['おはようございます'] },
 };
+const VERDICT = { 黒: '黒(人狼)', 白: '白(人間)' };   // 占いの結果
+const CO_RE = /(占(い師|い)?\s*(CO|co|ＣＯ|ｃｏ)|占い師です|(私|俺|僕|おれ|わたし|ぼく|自分)(が|は)占い師|占い結果|占った結果|占いの結果|を占った|占ったら)/;   // 占い師の名乗り・結果の報告(機械的に拾う。外れることもある)
+// 他人の名乗りへの返事(「占いCO確認」「占いCOありがとう」)や、他人の結果の話(「ブンの占い結果が本当なら」「占い結果を待つ」)は、名乗りに数えない
+const CO_WORD = '占(い師|い)?\\s*(CO|co|ＣＯ|ｃｏ)|占い結果|占いの結果|占った結果';
+const CO_OF_OTHER = new RegExp('(.{0,8})の(' + CO_WORD + ')', 'g');
+const CO_AFTER = new RegExp('(' + CO_WORD + ')\\s*(確認|了解|把握|ありがと|感謝|助かる|きた|来た|キタ|出た|出て|いる|いた|見た|者|してる人|した人|している人|の人|の方|を待|待ち|次第|が出|が本当|を信じ|は信じ)', 'g');
+const FIRST_PERSON = /(私|俺|僕|自分|おれ|わたし|ぼく|あたし|今日|昨日|今朝|初日|夜|朝|昼|今|さっき|[0-9０-９]日目)$/;   // 「俺の占い結果」「今日の占い結果」は、本人の報告
+function isClaim(text) {
+  const rest = text.replace(CO_OF_OTHER, (m, pre) => (FIRST_PERSON.test(pre) ? m : '')).replace(CO_AFTER, '');
+  return CO_RE.test(rest);
+}
 const VOTE_TALK = /(に入れ(る|ます|るわ|るよ|るつもり|たい)|を吊(る|ります|りたい)|吊り(先|ます|は|寄り)|票(は|を)|投票(する|します)|で変わらない)/;   // 票先に触れた発言
 const BAN = /つまり|例えば|たとえば|ではないでしょうか|ということです|という点|ご自身/;
+// 配役。ais は AI の人数(先頭の1人が強い AI、あとはふつうの参加者)。multi は複数日(昼 → 夜 → 昼)。占いなしと4A占い入りは、昼1の投票で決着する
+const RULESETS = {
+  plain: { ais: 2, roles: ['人狼', '村人', '村人'], seer: false, multi: false, setup: '人狼-1,村人-3' },
+  seer4: { ais: 2, roles: ['占い師', '人狼', '村人'], seer: true, multi: false, setup: '人狼-1,占い師-1,村人-2' },
+  seer6: { ais: 4, roles: ['占い師', '人狼', '村人', '村人', '村人'], seer: true, multi: true, setup: '人狼-1,占い師-1,村人-4' },
+};
+const AI_NAMES = ['ブン', 'シン', 'レン', 'ミオ'];
+const SAMPLE_SLOTS = 2;                 // Claude を同時に呼ぶ数。「同時に動くのは2件ほど、少し待たされ、あふれるとエラー」なので、ページ側で順番待ちにする
 const SETTINGS_KEY = 'room4a-settings';
 const PROMPTS = JSON.parse(document.getElementById('prompts').textContent);
 
@@ -281,9 +337,10 @@ const store = {
 /* ---------- 状態 ---------- */
 const S = {
   phase: 'setup', sample: null, demo: false, ready: false,
-  cfg: null, t0: 0, duration: 100, user: 'アキラ',
+  cfg: null, t0: 0, duration: 100, user: 'アキラ', rules: 'plain', seer: null,
   posts: [], nextId: 1, agents: [], timer: null, calls: [], seq: 0,
   votes: {}, flags: { ban: 0, ref: 0 }, warmMs: null, userVote: null, finished: false,
+  day: 1, alive: new Set(), dead: [], notes: [], events: [], history: [], night: null, winner: null, totalSecs: 0, voteDone: false,
 };
 const NAME = { strong: 'ブン', casual: 'シン' };
 const TIER_JA = { quick: '速い', default: '標準', complex: '高精度' };
@@ -292,7 +349,12 @@ const elapsed = () => (performance.now() - S.t0) / 1000;
 const endStretch = (a) => Math.min(S.duration * 0.3, Math.max(END_STRETCH, 2 * ((a && a.ttft) || 0) + 8));
 const deadZone = (a) => Math.min(S.duration * 0.15, Math.max(DEAD_ZONE, ((a && a.ttft) || 0) + 2));
 const players = () => [S.user, ...S.agents.map((a) => a.name)];
-const colorOf = (name) => name === S.user ? 'var(--you)' : (S.agents[0] && name === S.agents[0].name ? 'var(--ai1)' : 'var(--ai2)');
+const rule = () => RULESETS[S.rules] || RULESETS.plain;
+const alivePlayers = () => players().filter((n) => S.alive.has(n));
+const aliveAgents = () => S.agents.filter((a) => !a.dead);
+const agentOf = (name) => S.agents.find((a) => a.name === name);
+const dayOf = (p) => (p.day == null ? S.day : p.day);              // 手で作った発言(テスト)には day がない。いまの日として扱う
+const colorOf = (name) => { if (name === S.user) return 'var(--you)'; const i = S.agents.findIndex((a) => a.name === name); return 'var(--ai' + (i < 0 ? 2 : Math.min(i + 1, 4)) + ')'; };
 
 /* ---------- 読み込み: Claude の呼び出し口を探す ---------- */
 const samplePromise = (async () => {
@@ -314,10 +376,11 @@ samplePromise.then((fn) => {
 function readSettings() {
   const dur = clamp(Math.round(Number($('dur').value)) || 100, 25, 660);
   let name = $('uname').value.trim().slice(0, 8) || 'アキラ';
-  if (name === NAME.strong || name === NAME.casual) name += 'さん';
+  if (AI_NAMES.includes(name)) name += 'さん';
   return {
     dur, name, assign: $('assign').value, register: $('reg').value, cps: Number($('speed').value) || 9, mode: $('mode').value,
     tier: (document.querySelector('input[name=tier]:checked') || { value: 'quick' }).value,
+    rules: RULESETS[$('rules').value] ? $('rules').value : 'plain', myRole: $('myRole').value, bunRole: $('bunRole').value, firstNight: $('firstNight').value,
   };
 }
 function applySettings(c) {
@@ -326,6 +389,10 @@ function applySettings(c) {
   if (c.name) $('uname').value = c.name;
   if (c.mode) $('mode').value = c.mode;
   if (c.assign) $('assign').value = c.assign;
+  if (c.rules && RULESETS[c.rules]) $('rules').value = c.rules;
+  if (c.firstNight) $('firstNight').value = c.firstNight;
+  if (c.myRole) $('myRole').value = c.myRole;
+  if (c.bunRole) $('bunRole').value = c.bunRole;
   if (c.register) $('reg').value = c.register;
   if (c.cps) $('speed').value = String(c.cps);
   if (c.tier) { const r = document.querySelector('input[name=tier][value="' + c.tier + '"]'); if (r) r.checked = true; }
@@ -341,37 +408,116 @@ $('durPresets').addEventListener('click', (e) => { const b = e.target.closest('b
 // 判定役の形: シンは、どちらにも肩入れしない判定役で、人狼にはならない
 function syncMode() {
   const judge = $('mode').value === 'judge';
+  const rules = $('rules').value;
+  const seer = rules !== 'plain';
   $('shinRole').textContent = judge ? '判定役(どちらにも肩入れしない。口数は少ない)' : 'ふつうの参加者';
+  $('mode').querySelector('option[value=three]').textContent = 'ふつう: AI ' + RULESETS[rules].ais + '人と話す';
   $('modeHint').textContent = judge
     ? 'あなたとブンが議論し、シンは聞いて、最後に判定する(3人戦の第三者)。人狼は、あなたかブン。'
-    : 'ブンとシンが、それぞれ話す。';
-  $('sub').textContent = judge
-    ? '人狼1・村人2+初日犠牲者(ダミー)。ブンと対話し、判定役のシンが最後に判定する。議論の長さは25〜660秒。'
-    : '人狼1・村人2+初日犠牲者(ダミー)。AI 2人を相手に、議論の長さ(25〜660秒)を選んで話し、投票する。';
+    : (seer ? '占い入りでは、AI がそれぞれ話す(判定役の形は、占いなしの4Aだけ)。' : 'ブンとシンが、それぞれ話す。');
+  const len = '議論の長さ(25〜660秒' + (rules === 'seer6' ? '。昼1・昼2とも同じ長さ' : '') + ')';
+  $('sub').textContent = rules === 'seer6'
+    ? '6A: 占い師1・人狼1・村人4(初日犠牲者を含む)。生き残りは5人。AI 4人を相手に、昼1 → 夜 → 昼2 と進めて、投票する。' + len + 'を選ぶ。'
+    : (rules === 'seer4'
+      ? '占い師1・人狼1・村人1+初日犠牲者(ダミー)。AI 2人を相手に、' + len + 'を選んで話し、投票する。'
+      : (judge
+        ? '人狼1・村人2+初日犠牲者(ダミー)。ブンと対話し、判定役のシンが最後に判定する。議論の長さは25〜660秒。'
+        : '人狼1・村人2+初日犠牲者(ダミー)。AI 2人を相手に、議論の長さ(25〜660秒)を選んで話し、投票する。'));
   const opt = $('assign').querySelector('option[value=shin]');
   opt.disabled = judge;
   if (judge && $('assign').value === 'shin') $('assign').value = 'random';
 }
+// 配役: 占いなしの4A / 占い入りの4A / 占い入りの6A。占い入りでは、判定役の形は使わない
+const RULES_HINT = {
+  plain: '役職の情報はなく、材料は発言の筋だけ。ブンの動きは、占いなしのログ(4A・5A)から。',
+  seer4: '4人村(占い師1・人狼1・村人1+初日犠牲者)。昼1の投票で決着する。占い入りのログは6Aの1本だけで、ブンの動きは B・A を写したものではなく、一般的な人狼の考え方。',
+  seer6: '6人村(占い師1・人狼1・村人4。初日犠牲者を含む)で、生き残りは5人。昼1 → 夜(占い・襲撃) → 昼2。縄は2本で、2本とも外れると人狼の勝ち。ブンの指示は、ログ1本と、確率論メモ(6Aは占いを即露出)を元にしている。AI が4人なので、呼び出しが多い。',
+};
+function syncRules() {
+  const rules = $('rules').value;
+  const seer = rules !== 'plain';
+  $('seerRoles').hidden = !seer;
+  $('firstNightField').hidden = !seer;
+  $('assignField').hidden = seer;
+  $('who3').hidden = $('who4').hidden = rules !== 'seer6';
+  $('mode').querySelector('option[value=judge]').disabled = seer;
+  if (seer && $('mode').value === 'judge') $('mode').value = 'three';
+  $('rulesHint').textContent = RULES_HINT[rules] || '';
+  syncMode();
+}
 $('mode').addEventListener('change', syncMode);
+$('rules').addEventListener('change', syncRules);
 applySettings(store.get());
-syncMode();
+syncRules();
 
 /* ---------- プロンプト ---------- */
 function sysPrompt(a) {
-  const base = a.kind === 'strong' ? PROMPTS.strong[a.role] : (a.kind === 'judge' ? PROMPTS.judge['村人'] : PROMPTS.casual[a.role]);
+  const base = rule().seer
+    ? PROMPTS[S.rules][a.kind === 'strong' ? 'strong' : 'casual'][a.role]
+    : (a.kind === 'strong' ? PROMPTS.strong[a.role] : (a.kind === 'judge' ? PROMPTS.judge['村人'] : PROMPTS.casual[a.role]));
   return base.split('{me}').join(a.name).split('{register}').join(S.cfg.register);
 }
-function situation(a, t, horizon) {
+// 占い入りの場: 役職ごとの、本人だけが知っていること
+const nightName = (n) => (n === 0 ? '夜0(初日)' : '夜' + n);
+// 占い師の結果から、人狼が確定しているか(黒が出た人。または、白だけで、まだ白黒が分からない生存者が1人に絞れたとき)。処刑された人・襲われた人は、人狼ではない(人狼なら、ゲームが終わっている)
+function seerKnownWolf() {
+  if (!S.seer) return null;
+  const black = S.seer.log.find((r) => r.result === '黒');
+  if (black) return black.target;
+  const grey = alivePlayers().filter((n) => n !== S.seer.name && !S.seer.log.some((r) => r.target === n));
+  return grey.length === 1 ? grey[0] : null;
+}
+function privateLines(a) {
+  if (!rule().seer) return [];
+  const n = players().length;
+  if (a.role === '占い師') {
+    const out = S.seer.log.map((r) => '- 占い結果(' + nightName(r.night) + (r.auto && r.night === 0 && S.cfg.firstNight === 'white' ? '・お告げ' : '') + '。あなただけが知っている): ' + r.target + 'は【' + VERDICT[r.result] + '】');
+    const wolf = seerKnownWolf();
+    if (wolf) out.push('- 人狼は' + wolf + 'と確定している');
+    else if (rule().multi) out.push('- 白を出した人は、確白(確定した白)。まだ白黒が分からない人が、グレー');
+    return out;
+  }
+  const others = n - 1;
+  if (a.role === '人狼') return ['- あなたは人狼(人狼は1人だけ)。ほかの' + others + '人は、占い師1人と、村人たち(誰がどの役かは分からない)'];
+  return ['- あなたは村人。ほかの' + others + '人は、占い師1人・人狼1人と、ほかの村人たち(誰がどの役かは分からない)。占い師の結果が自分に出ていたなら、自分は村人と知っているので、その真偽を確かめられる'];
+}
+// 占い師の名乗り(CO)や結果の報告を、発言者ごとに最初の1件だけ拾う。機械的なので、外れることもある
+function claims() {
+  const seen = new Map();
+  for (const p of S.posts) if (isClaim(p.text) && !seen.has(p.speaker)) seen.set(p.speaker, p.id);
+  return [...seen];
+}
+// AI に見せるログ: 発言と、全員に見える通知(夜の知らせ、死亡、投票結果)を、起きた順に並べる
+const stampOf = (p) => (rule().multi ? dayOf(p) + '日目 ' : '') + fmt(p.t);
+function promptLog() {
+  const items = S.posts.map((p) => ({ at: p.id, post: p }));
+  S.notes.forEach((n, i) => items.push({ at: n.afterId + 0.5 + i * 1e-6, note: n.text }));
+  items.sort((x, y) => x.at - y.at);
+  const lines = [];
+  for (const it of items) {
+    if (it.note != null) { lines.push('[通知] ' + it.note.split('\n').join('\n    ')); continue; }
+    const p = it.post;
+    const [first, ...rest] = p.text.split('\n');
+    lines.push('#' + p.id + ' [' + stampOf(p) + '] ' + p.speaker + ': ' + first);
+    for (const r of rest) lines.push('    ' + r);
+  }
+  return lines;
+}
+function situation(a, t, horizon, phase) {
   const rem = Math.max(0, Math.round(S.duration - t));
-  const head = [
-    '# 卓の状況',
-    '- 自分の名前: ' + a.name,
-    '- 自分の役職: ' + a.role,
-    '- 参加者: ' + players().join('、') + '(自分を含む3人。初日犠牲者のダミーは死亡済み)',
-    '- 局面: 昼の議論中(1日目)',
-    '- 経過: ' + Math.round(t) + '秒 / 議論は全体で' + S.duration + '秒。残り' + rem + '秒(@' + rem + ')',
-    '- 発言の語調: ' + S.cfg.register,
-  ];
+  const multi = rule().multi;
+  const head = ['# 卓の状況', '- 自分の名前: ' + a.name, '- 自分の役職: ' + a.role];
+  if (multi) {
+    head.push('- 参加者: ' + players().join('、') + '(自分を含む' + players().length + '人。初日犠牲者のダミーは、初日の夜に死亡済み)');
+    head.push('- 生存者: ' + alivePlayers().join('、') + '(' + alivePlayers().length + '人)');
+    if (S.dead.length) head.push('- 死亡: ' + S.dead.map((d) => d.name + '(' + d.day + '日目' + (d.cause === 'execution' ? 'の投票で処刑' : 'の夜に襲撃') + ')').join('、'));
+  } else {
+    head.push('- 参加者: ' + players().join('、') + '(自分を含む' + players().length + '人。初日犠牲者のダミーは死亡済み)');
+  }
+  head.push('- 局面: ' + (phase || '昼の議論中(' + S.day + '日目)'));
+  head.push('- 経過: ' + Math.round(t) + '秒 / 議論は全体で' + S.duration + '秒。残り' + rem + '秒(@' + rem + ')');
+  head.push('- 発言の語調: ' + S.cfg.register);
+  head.push(...privateLines(a));
   if (S.cfg.mode === 'judge') {
     const judge = S.agents.find((x) => x.kind === 'judge');
     const rest = players().filter((n) => n !== a.name && n !== judge.name);
@@ -380,20 +526,17 @@ function situation(a, t, horizon) {
       : '- この部屋の形: ' + judge.name + 'は判定役で、どちらにも肩入れしない。口数は少なく、議論には入ってこない。話しかけても中立のままで、味方にならない。議論の相手は ' + rest[0] + '。相手との議論そのものを進める。' + judge.name + 'への呼びかけ(感想を聞く、判断を仰ぐ、答えを返す)は、議論全体で2回まで');
   }
   if (horizon) head.push('- 今回の長さ: いまから' + horizon + '秒ぶん');
-  const body = ['', '# ここまでの発言(古い順。番号は返信先の指定に使う。[]は議論が始まってからの経過)', '[通知] 恐ろしい夜が明け、朝になりました。(初日犠牲者さんが死亡しました)'];
+  const body = ['', '# ここまでの発言(古い順。番号は返信先の指定に使う。[]は' + (multi ? '各日の' : '') + '議論が始まってからの経過)', ...promptLog()];
   if (!S.posts.length) body.push('(まだ誰も発言していない)');
-  for (const p of S.posts) {
-    const [first, ...rest] = p.text.split('\n');
-    body.push('#' + p.id + ' [' + fmt(p.t) + '] ' + p.speaker + ': ' + first);
-    for (const r of rest) body.push('    ' + r);
-  }
   return head.concat(body).join('\n');
 }
 function hints(a, t, fresh) {
   const lines = ['# 機械的に拾ったメモ(参考。判断はあなたがする)'];
-  if (!S.posts.length) { lines.push('- まだ誰も発言していない。挨拶と、短い冗談か最初の話題から入る'); return lines.join('\n'); }
+  const today = S.posts.filter((p) => dayOf(p) === S.day);                 // 複数日の場では、時間まわりのメモは、この日の発言だけで数える
+  if (!today.length) { lines.push(S.day > 1 ? '- この日は、まだ誰も発言していない。挨拶のあと、夜の知らせと昨日までの流れを踏まえて入る' : '- まだ誰も発言していない。挨拶と、短い冗談か最初の話題から入る'); return lines.join('\n'); }
   const me = a.name;
   const mine = S.posts.filter((p) => p.speaker === me);
+  const mineToday = mine.filter((p) => dayOf(p) === S.day);
   const lastMine = mine.length ? mine[mine.length - 1] : null;
   const after = S.posts.filter((p) => p.id > (lastMine ? lastMine.id : 0) && p.speaker !== me);
   lines.push(lastMine ? '- 自分の最後の発言: #' + lastMine.id + '(' + fmt(lastMine.t) + ')。それ以降の他人の発言: ' + after.length + '件' : '- 自分はまだ発言していない。他人の発言: ' + after.length + '件');
@@ -405,7 +548,7 @@ function hints(a, t, fresh) {
   const mean = recent.reduce((s, p) => s + len(p.text), 0) / recent.length;
   lines.push('- 直近' + recent.length + '件の平均は' + Math.round(mean) + '字。部屋のテンポは、これに合わせる(短いやりとりなら1件・短く、書き合いが長ければ長く)。発言は全部で' + S.posts.length + '件');
   if (fresh && fresh.length) lines.push('- 新しい発言(前回の呼び出しのあと): ' + fresh.map((p) => '#' + p.id + ' ' + p.speaker).join('、') + (a.kind === 'judge' ? '。判定役は、書かなくてよい' : '。それぞれに返す(挨拶・相づち・笑いだけのものは除く)'));
-  if (mine.length) lines.push('- 挨拶は最初に済ませた。「おはよう」を言い直さない');
+  if (mineToday.length) lines.push('- 挨拶は' + (S.day > 1 ? 'この日の最初に' : '最初に') + '済ませた。「おはよう」を言い直さない');
   if (a.kind === 'strong' && S.cfg.mode === 'judge') {
     const judge = S.agents.find((x) => x.kind === 'judge');
     const n = mine.filter((p) => p.text.includes(judge.name)).length;
@@ -415,8 +558,8 @@ function hints(a, t, fresh) {
   }
   if (a.kind !== 'judge') {
     // 全員を同じ強さで見る: 名前を出した・返信先にした回数を数えて、偏りを知らせる(判定役の形では、ブンは判定役に話しかけすぎない)
-    const others = players().filter((n) => n !== a.name);
-    const aimed = (n) => mine.filter((p) => p.text.includes(n) || (p.to || []).some((id) => { const q = S.posts.find((x) => x.id === id); return q && q.speaker === n; })).length;
+    const others = alivePlayers().filter((n) => n !== a.name);
+    const aimed = (n) => mineToday.filter((p) => p.text.includes(n) || (p.to || []).some((id) => { const q = S.posts.find((x) => x.id === id); return q && q.speaker === n; })).length;
     const counts = others.map((n) => [n, aimed(n)]);
     const total = counts.reduce((sum, c) => sum + c[1], 0);
     if (others.length >= 2 && total >= 4 && !(a.kind === 'strong' && S.cfg.mode === 'judge')) {
@@ -424,21 +567,26 @@ function hints(a, t, fresh) {
       const skew = sorted[sorted.length - 1][1] >= 3 * Math.max(1, sorted[0][1]);
       lines.push('- 各人への発言(名前を出した・返信先にした回数): ' + counts.map((c) => c[0] + ' ' + c[1] + '回').join('、') + (skew ? '。偏っている。' + sorted[0][0] + 'にも、同じ種類の問い(基準・理由・立場)を向ける' : '。全員を同じ強さで見る'));
     }
-    const votes = mine.filter((p) => VOTE_TALK.test(p.text)).length;
-    lines.push('- 票先への言及: 自分は' + votes + '回(議論全体で2回まで)。' + (votes >= 2 ? 'もう言わない(新しい材料が出たときだけ、理由を添えて変更を伝える)' : '言う前に、言って誰がどう動くかを考える。毎回は言わない'));
+    const votes = mineToday.filter((p) => VOTE_TALK.test(p.text)).length;
+    lines.push('- 票先への言及: 自分は' + votes + '回(' + (rule().multi ? 'この日は' : '議論全体で') + '2回まで)。' + (votes >= 2 ? 'もう言わない(新しい材料が出たときだけ、理由を添えて変更を伝える)' : '言う前に、言って誰がどう動くかを考える。毎回は言わない'));
   }
   const remain = S.duration - t;
   if (a.kind !== 'judge' && remain <= endStretch(a) + 10) {
     lines.push('- 議論の終わりまで残り' + Math.max(0, Math.round(remain)) + '秒。最後まで書き続ける。言い残した問い、答えの出ていない点、最後の確認、短い一言を、残りの秒数のあいだに並べる(at を終わり近くまで使う)。同じことの繰り返しや水増しはしない');
   }
-  if (S.posts.every((p) => len(p.text) <= 14 && /おは|こんにちは|こんばんは|よろしく/.test(p.text))) {
-    lines.push(a.kind === 'judge' ? '- 今のところ全員が挨拶だけ。判定役は、様子を見る(書かなくてよい)' : a.kind === 'strong' ? '- 今のところ全員が挨拶だけ。起点(名前や朝一やゲームの進め方への観察、軽い冗談)を1つ置いてよい。「誰を狼で見てる？」のような読みの問いは、材料が出るまで出さない。他の人が先に置いたら、それに返す' : '- 今のところ全員が挨拶だけ。話題がなければ、短い雑談や感想で場に乗る。ほかの人が話題を出したら、それに返す');
+  if (rule().seer) {
+    const cl = claims();
+    lines.push('- 占い師を名乗った人(機械的に拾ったもの。外れることもある): ' + (cl.length ? cl.map(([n, id]) => n + '(#' + id + ')').join('、') + (cl.length >= 2 ? '。2人が名乗っている(対抗)' : '') : 'まだいない'));
+    if (a.role === '占い師' && !cl.some(([n]) => n === a.name)) lines.push('- あなたは、まだ占い師を名乗っていない。名乗って、結果を出す');
   }
-  const last30 = S.posts.filter((p) => p.t >= t - 30);
+  if (today.every((p) => len(p.text) <= 14 && /おは|こんにちは|こんばんは|よろしく/.test(p.text))) {
+    lines.push(a.kind === 'judge' ? '- 今のところ全員が挨拶だけ。判定役は、様子を見る(書かなくてよい)' : (rule().seer && a.role === '占い師' && !claims().some(([n]) => n === a.name)) ? '- 今のところ全員が挨拶だけ。占い師のあなたは、占いCO と結果を、ここで出す(それが起点になる)' : a.kind === 'strong' ? '- 今のところ全員が挨拶だけ。起点(名前や朝一やゲームの進め方への観察、軽い冗談)を1つ置いてよい。「誰を狼で見てる？」のような読みの問いは、材料が出るまで出さない。他の人が先に置いたら、それに返す' : '- 今のところ全員が挨拶だけ。話題がなければ、短い雑談や感想で場に乗る。ほかの人が話題を出したら、それに返す');
+  }
+  const last30 = today.filter((p) => p.t >= t - 30);
   lines.push('- 直近30秒の部屋の発言: ' + last30.length + '件(うち自分 ' + last30.filter((p) => p.speaker === me).length + '件)');
   if (mine.length) lines.push('- 自分の直近の発言(口調・立場・冗談の続きとして書く): ' + mine.slice(-3).map((p) => '#' + p.id + '「' + p.text.split('\n')[0].slice(0, 40) + '」').join(' / '));
   const chars = {}; let total = 0;
-  for (const p of S.posts) { chars[p.speaker] = (chars[p.speaker] || 0) + len(p.text); total += len(p.text); }
+  for (const p of today) { chars[p.speaker] = (chars[p.speaker] || 0) + len(p.text); total += len(p.text); }
   const share = Object.entries(chars).sort((x, y) => y[1] - x[1]).map(([n, c]) => n + ' ' + Math.round(100 * c / (total || 1)) + '%').join('、');
   lines.push('- 文字量の割合: ' + share + (a.kind === 'strong' ? '(B・A は部屋全体の4〜5割を書いた。自分が少なすぎないか)' : ''));
   return lines.join('\n');
@@ -462,16 +610,63 @@ function votePrompt(a, cand) {
   ].join('\n\n');
 }
 
+// 夜の行動(占う相手・襲う相手)を、AI に選ばせる
+function nightCandidates(a, kind) {
+  const alive = alivePlayers().filter((n) => n !== a.name);
+  if (kind === 'bite') return alive.filter((n) => S.roles[n] !== '人狼');
+  const fresh = alive.filter((n) => !S.seer.log.some((r) => r.target === n));          // 結果が出ている人は占わない
+  return fresh.length ? fresh : alive;
+}
+function nightPrompt(a, kind, cand) {
+  const task = kind === 'divine'
+    ? '夜になった。占う相手を1人選ぶ。白が出た人は確白(確定した白)になる。まだ白黒が分からない人(グレー)のうち、疑いが強い人、または結果が議論の役に立つ人を選ぶ。自分は占えない。'
+    : '夜になった。襲う相手を1人選ぶ。占い師を名乗った人がいれば、その人を襲うのが基本(残すと、翌日も結果が出て、人狼が見つかる)。名乗りがなければ、占い師らしい人(結果を出せる立場の人)や、村の中心になっている人を選ぶ。';
+  return [
+    sysPrompt(a), situation(a, S.duration, 0, '夜(' + S.night.n + '日目の投票のあと)'), memo(a),
+    '# 夜の行動\n' + task + '\n候補: ' + cand.join('、') + '\nこの呼び出しでは、発言は書かない。次の形の JSON を1行だけ出す。前後に文章を付けない。\n{"target":"名前","why":"理由(30字以内)"}',
+  ].filter(Boolean).join('\n\n');
+}
+
 /* ---------- モデルの呼び出し(デモは定型応答) ---------- */
-function ask(a, prompt, opts, meta) {
+// 同時に呼ぶ数を SAMPLE_SLOTS までにして、あとは順番待ち(強い AI と、夜・投票の呼び出しを先に)。順番待ちの間に中断すれば、何も使わない
+const GATE = { running: 0, waiting: [] };
+function pump() {
+  while (GATE.running < SAMPLE_SLOTS && GATE.waiting.length) {
+    let k = 0;
+    for (let i = 1; i < GATE.waiting.length; i++) if (GATE.waiting[i].prio < GATE.waiting[k].prio) k = i;
+    const w = GATE.waiting.splice(k, 1)[0];
+    if (w.off) w.off();
+    GATE.running++;
+    let released = false;
+    w.resolve(() => { if (released) return; released = true; GATE.running--; pump(); });
+  }
+}
+function acquire(prio, signal) {
+  return new Promise((resolve, reject) => {
+    const w = { prio, resolve, off: null };
+    if (signal) {
+      if (signal.aborted) { reject({ code: 'cancelled', message: 'aborted' }); return; }
+      const onAbort = () => { const i = GATE.waiting.indexOf(w); if (i >= 0) GATE.waiting.splice(i, 1); reject({ code: 'cancelled', message: 'aborted' }); };
+      signal.addEventListener('abort', onAbort, { once: true });
+      w.off = () => signal.removeEventListener('abort', onAbort);
+    }
+    GATE.waiting.push(w);
+    pump();
+  });
+}
+async function ask(a, prompt, opts, meta) {
   if (S.demo) return demoAsk(a, meta, opts);
-  return S.sample(prompt, opts);
+  const release = await acquire(a.kind === 'strong' || meta.type !== 'chunk' ? 0 : 1, opts && opts.signal);
+  if (meta.call) meta.call.sent = performance.now();
+  try { return await S.sample(prompt, opts); } finally { release(); }
 }
 async function demoAsk(a, meta, opts) {
   const sig = opts && opts.signal;
   let objs;
   if (meta.type === 'vote') {
     objs = [{ vote: meta.cand[Math.floor(Math.random() * meta.cand.length)], why: 'デモの定型応答' }];
+  } else if (meta.type === 'night') {
+    objs = [{ target: meta.cand[Math.floor(Math.random() * meta.cand.length)], why: 'デモの定型応答' }];
   } else {
     const mine = S.posts.filter((p) => p.speaker === a.name).length;
     const last = [...S.posts].reverse().find((p) => p.speaker !== a.name);
@@ -527,7 +722,7 @@ function onChunkText(call, text) {
   if (call.dead) return;
   if (call.first === null && text.trim()) {
     call.first = performance.now();
-    const x = (call.first - call.start) / 1000;
+    const x = (call.first - (call.sent || call.start)) / 1000;
     call.agent.ttft = call.agent.ttft == null ? x : 0.6 * call.agent.ttft + 0.4 * x;
   }
   for (;;) {
@@ -547,10 +742,10 @@ function handleObject(call, obj) {
   if (typeof obj.text === 'string') schedule(call, obj);
   if (obj.read != null) {
     a.memo = String(typeof obj.read === 'string' ? obj.read : JSON.stringify(obj.read)).slice(0, 240);
-    a.reads.push({ t: elapsed(), text: a.memo });
+    a.reads.push({ t: elapsed(), day: S.day, text: a.memo });
   }
-  if (typeof obj.vote === 'string' && players().includes(obj.vote) && obj.vote !== a.name) a.lean = obj.vote;
-  if (obj.silence) a.reads.push({ t: elapsed(), text: '(書かない) ' + String(obj.silence).slice(0, 120) });
+  if (typeof obj.vote === 'string' && alivePlayers().includes(obj.vote) && obj.vote !== a.name) a.lean = obj.vote;
+  if (obj.silence) a.reads.push({ t: elapsed(), day: S.day, text: '(書かない) ' + String(obj.silence).slice(0, 120) });
 }
 function schedule(call, obj) {
   const a = call.agent;
@@ -577,9 +772,14 @@ function schedule(call, obj) {
 /* ---------- 画面 ---------- */
 const logEl = $('log');
 function stick() { logEl.scrollTop = logEl.scrollHeight; }
-function addNote(text) {
+function addNote(text) {                       // 画面だけの通知
   logEl.append(el('div', 'sys', text));
   stick();
+}
+function publicNote(text) {                    // 全員に見える通知(夜の知らせ、死亡、投票結果): 画面、AI に見せるログ、コピー用のログに残す
+  addNote(text);
+  S.notes.push({ afterId: S.nextId - 1, text });
+  S.events.push({ k: 'sys', text });
 }
 function renderPost(p) {
   const row = el('div', 'line' + (p.you ? ' you' : ''));
@@ -598,8 +798,9 @@ function renderPost(p) {
   stick();
 }
 function addPost(speaker, text, to, t, reqAt) {
-  const p = { id: S.nextId++, t, speaker, text, to: to || [], you: speaker === S.user, reqAt: reqAt == null ? t : reqAt };
+  const p = { id: S.nextId++, t, day: S.day, speaker, text, to: to || [], you: speaker === S.user, reqAt: reqAt == null ? t : reqAt };
   S.posts.push(p);
+  S.events.push({ k: 'post', speaker, text });
   renderPost(p);
   if (p.you) {
     for (const a of S.agents) if (S.duration - t > deadZone(a)) trimQueue(a, t);   // 終わりぎわは、作り直しが間に合わない。予定をそのまま出す
@@ -610,7 +811,9 @@ function addPost(speaker, text, to, t, reqAt) {
   return p;
 }
 function statusOf(a, t) {
-  if (a.call) return '考え中 ' + ((performance.now() - a.call.start) / 1000).toFixed(1) + '秒';
+  if (a.dead) return '死亡';
+  if (a.call && !a.call.sent && !S.demo) return '順番待ち';
+  if (a.call) return '考え中 ' + ((performance.now() - (a.call.sent || a.call.start)) / 1000).toFixed(1) + '秒';
   if (a.queue.length && a.queue[0].start <= t) return '入力中…';
   if (a.queue.length) return '発言待ち';
   return a.error ? '待機(' + a.error + ')' : '待機';
@@ -620,12 +823,12 @@ function updateHud(t) {
   const tm = $('timer');
   tm.textContent = fmt(Math.ceil(rem));
   tm.classList.toggle('low', rem <= 10);
-  $('at').textContent = '@' + Math.ceil(rem);
+  $('at').textContent = (rule().multi ? S.day + '日目 ' : '') + '@' + Math.ceil(rem);
   $('barfill').style.transform = 'scaleX(' + (rem / S.duration).toFixed(4) + ')';
   const chips = $('chips');
   chips.textContent = '';
   for (const a of S.agents) {
-    const chip = el('div', 'chip');
+    const chip = el('div', 'chip' + (a.dead ? ' dead' : ''));
     const b = el('b', '', a.name + (a.kind === 'judge' ? '(判定役)' : '')); b.style.color = colorOf(a.name);
     chip.append(b, document.createTextNode(statusOf(a, t)));
     const s = a.stat;
@@ -638,15 +841,15 @@ function updateHud(t) {
 
 /* ---------- 呼び出しの管理 ---------- */
 function newCall(a, type) {
-  return { id: ++S.seq, agent: a, type, start: performance.now(), tStart: elapsed(), ctl: new AbortController(), first: null, consumed: 0, base: null, lines: 0,
-    dead: false, aborted: false, stale: false, posts: 0, horizon: HORIZON, end: null, applied: null, error: null, chars: 0, head: '', promptChars: 0, tier: S.cfg.tier };
+  return { id: ++S.seq, agent: a, type, day: S.day, start: performance.now(), tStart: elapsed(), ctl: new AbortController(), first: null, consumed: 0, base: null, lines: 0,
+    dead: false, aborted: false, stale: false, posts: 0, horizon: HORIZON, sent: null, end: null, applied: null, error: null, chars: 0, head: '', promptChars: 0, tier: S.cfg.tier };
 }
 function closeCall(call, res) {
   call.end = performance.now(); call.applied = res.modelTierApplied || null; call.chars = res.text.length;
   call.head = res.text.slice(0, 200); call.truncated = !!res.truncated;
   S.calls.push(call);
   const st = call.agent.stat;
-  st.n++; st.last = (call.end - call.start) / 1000;
+  st.n++; st.last = (call.end - (call.sent || call.start)) / 1000;
 }
 function errorText(code) {
   switch (code) {
@@ -709,7 +912,7 @@ function maybeRequestJudge(a, t) {
 }
 function maybeRequest(a, t) {
   const rem = S.duration - t;
-  if (rem < 2 || t < a.backoff) return;
+  if (a.dead || rem < 2 || t < a.backoff) return;
   if (S.agents.some((x) => x.opening)) return;                  // 挨拶が出そろうまで、モデルは呼ばない
   if (a.kind === 'judge') { maybeRequestJudge(a, t); return; }
   if (a.kind === 'casual' && a.lastReq < -50) {                 // シンの最初の呼び出しは、ブンの最初の呼び出しが終わるのを待つ(同じ起点を置かないため)
@@ -757,7 +960,7 @@ async function requestChunk(a, t) {
   const prompt = chunkPrompt(a, t, horizon, fresh);
   call.promptChars = prompt.length;
   try {
-    const res = await ask(a, prompt, { signal: call.ctl.signal, modelTier: S.cfg.tier, cache: false, onText: (u) => onChunkText(call, u.text) }, { type: 'chunk' });
+    const res = await ask(a, prompt, { signal: call.ctl.signal, modelTier: S.cfg.tier, cache: false, onText: (u) => onChunkText(call, u.text) }, { type: 'chunk', call });
     if (call.dead) return;
     onChunkText(call, res.text);
     closeCall(call, res);
@@ -774,16 +977,25 @@ function tick() {
   if (S.phase !== 'talk') return;
   const t = elapsed();
   if (t >= S.duration) { endTalk(); return; }
-  for (const a of S.agents) { flush(a, t); maybeRequest(a, t); }
+  for (const a of S.agents) { if (a.dead) continue; flush(a, t); maybeRequest(a, t); }
   updateHud(t);
 }
 
 /* ---------- 開始 ---------- */
 function makeAgent(name, kind, role) {
   return { name, kind, role, call: null, queue: [], nextFree: 0, lastReq: -99, seenId: 0, aborts: 0, keepQueue: false,
-    backoff: 0, memo: '', lean: null, reads: [], error: null, opening: false, ttft: null, fills: 0, stat: { n: 0, last: null } };
+    backoff: 0, memo: '', lean: null, reads: [], error: null, opening: false, ttft: null, fills: 0, dead: false, stat: { n: 0, last: null } };
+}
+function assignSeer(cfg) {       // 占い入り: あなた・ブンの役職は、指定どおり(同じ役職は、数がなければ2人にはできない)。残りは、無作為に配る
+  const pool = RULESETS[cfg.rules].roles.slice();
+  const take = (want) => { const i = pool.indexOf(want); return i < 0 ? null : pool.splice(i, 1)[0]; };
+  const mine = take(cfg.myRole);
+  const bun = take(cfg.bunRole);
+  for (let i = pool.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [pool[i], pool[j]] = [pool[j], pool[i]]; }
+  return { you: mine || pool.shift(), bun: bun || pool.shift(), shin: pool.shift(), a3: pool.shift(), a4: pool.shift() };
 }
 function assignRoles(cfg) {
+  if (RULESETS[cfg.rules] && RULESETS[cfg.rules].seer) return assignSeer(cfg);
   const seats = cfg.mode === 'judge' ? ['you', 'bun'] : ['you', 'bun', 'shin'];    // 判定役のシンは、人狼にならない
   const wolf = seats.includes(cfg.assign) ? cfg.assign : seats[Math.floor(Math.random() * seats.length)];
   return { you: wolf === 'you' ? '人狼' : '村人', bun: wolf === 'bun' ? '人狼' : '村人', shin: wolf === 'shin' ? '人狼' : '村人' };
@@ -811,29 +1023,216 @@ async function startGame(forceDemo) {
     const ok = await connect();
     if (!ok) { S.phase = 'setup'; $('startBtn').disabled = false; offerDemo(); return; }
   }
-  S.user = S.cfg.name; S.duration = S.cfg.dur;
-  S.posts = []; S.nextId = 1; S.calls = []; S.votes = {}; S.flags = { ban: 0, ref: 0 }; S.userVote = null; S.finished = false;
+  S.user = S.cfg.name; S.rules = S.cfg.rules; S.duration = S.cfg.dur; S.day = 1; S.totalSecs = 0;
+  S.posts = []; S.nextId = 1; S.calls = []; S.votes = {}; S.flags = { ban: 0, ref: 0 }; S.userVote = null; S.finished = false; S.result = null;
+  S.notes = []; S.events = []; S.history = []; S.dead = []; S.night = null; S.winner = null; S.voteDone = false; S.seer = null;
   const roles = assignRoles(S.cfg);
-  S.roles = { [S.user]: roles.you, [NAME.strong]: roles.bun, [NAME.casual]: roles.shin };
-  S.agents = [makeAgent(NAME.strong, 'strong', roles.bun), makeAgent(NAME.casual, S.cfg.mode === 'judge' ? 'judge' : 'casual', roles.shin)];
+  const seats = [roles.bun, roles.shin, roles.a3, roles.a4];
+  S.roles = { [S.user]: roles.you };
+  S.agents = [];
+  for (let i = 0; i < rule().ais; i++) {
+    const kind = i === 0 ? 'strong' : (i === 1 && S.cfg.mode === 'judge' ? 'judge' : 'casual');
+    S.agents.push(makeAgent(AI_NAMES[i], kind, seats[i]));
+    S.roles[AI_NAMES[i]] = seats[i];
+  }
+  S.alive = new Set(players());
+  if (rule().seer) S.seer = { name: players().find((n) => S.roles[n] === '占い師'), log: [] };
+  $('setup').hidden = true;
   logEl.textContent = '';
-  addNote('役職設定【人狼-1,村人-3】 / 初日犠牲者さんが死亡しました / 恐ろしい夜が明け、朝になりました。');
-  $('roleBadge').textContent = 'あなた: ' + roles.you + (S.cfg.mode === 'judge' ? ' / 判定役: ' + NAME.casual : '') + (S.demo ? ' / デモ' : '');
-  $('setup').hidden = true; $('room').hidden = false; $('vote').hidden = true; $('result').hidden = true;
-  $('chatForm').hidden = false; $('msg').disabled = false;
+  for (const n of players()) S.events.push({ k: 'raw', text: '鯖→' + n + ': あなたは【' + S.roles[n] + '】です' });
+  S.events.push({ k: 'raw', text: '鯖→初日犠牲者: あなたは【村人】です' }, { k: 'sys', text: '役職設定【' + rule().setup + ',役欠け:' + (rule().seer ? 'なし' : 'あり') + '】' },
+    { k: 'sys', text: 'ゲームを開始します' }, { k: 'sys', text: '夜になりました…役職の人は能力を実行してください' });
+  beginNight(0);
+}
+
+/* ---------- 夜(占い・襲撃)と朝 ---------- */
+const aliveRole = (role) => players().find((n) => S.roles[n] === role && S.alive.has(n));
+const wolfName = () => players().find((n) => S.roles[n] === '人狼');
+const verdictOf = (target) => (S.roles[target] === '人狼' ? '黒' : '白');
+const resultText = (target) => target + ' さんは' + (verdictOf(target) === '黒' ? '人狼です(黒)' : '人狼ではありません(白)');
+// 初日の占い: お告げ(ランダムな白)・ランダム・占い師が選ぶ。AI の占い師は、選ぶ場合も無作為
+function firstNightTarget(seerName) {
+  const mode = S.cfg.firstNight || 'white';
+  const cand = alivePlayers().filter((n) => n !== seerName);
+  const pool = mode === 'white' ? cand.filter((n) => S.roles[n] !== '人狼') : cand;
+  const use = pool.length ? pool : cand;
+  return use[Math.floor(Math.random() * use.length)];
+}
+function beginNight(n) {
+  S.phase = 'night';
+  S.night = { n, divine: null, bite: null, pending: new Set(), userDone: false, ready: false };
+  $('timer').textContent = '夜'; $('timer').classList.remove('low');          // 夜は時計が止まる。昼の終わりの表示を残さない
+  $('at').textContent = n > 0 ? n + '日目の夜' : '夜0';
+  $('barfill').style.transform = 'scaleX(0)';
+  if (n > 0) publicNote('夜になりました…役職の人は能力を実行してください');
+  const seer = aliveRole('占い師'), wolf = aliveRole('人狼');
+  if (seer && seer !== S.user) startAiNight(agentOf(seer), 'divine', n);
+  if (wolf && wolf !== S.user && n > 0) startAiNight(agentOf(wolf), 'bite', n);
+  renderNightPanel();
+  checkNightDone();
+}
+function startAiNight(a, kind, n) {
+  if (kind === 'divine' && n === 0) { S.night.divine = { by: a.name, target: firstNightTarget(a.name), auto: true }; return; }
+  S.night.pending.add(kind);
+  askNight(a, kind);
+}
+function lockButtons(box) { for (const x of box.querySelectorAll('button')) x.disabled = true; }
+function renderNightPanel() {
+  const n = S.night.n, me = S.user, role = S.roles[me], alive = S.alive.has(me);
+  const box = $('nightBtns');
+  box.textContent = '';
+  $('nightResult').textContent = '';
+  $('dawnBtn').hidden = true;
+  $('nightH').textContent = n === 0 ? '夜になりました' : n + '日目の夜になりました';
+  const need = alive && role === '占い師' ? 'divine' : (alive && role === '人狼' && n > 0 ? 'bite' : null);
+  if (n === 0 && need !== 'divine') { $('night').hidden = true; S.night.userDone = true; return; }   // 初日は、あなたが占い師でなければ、夜の画面を飛ばす
+  S.night.userDone = !need;
+  const dummy = n === 0 ? '初日犠牲者さんは、人狼に襲われました。' : '';
+  if (need === 'divine' && n === 0 && (S.cfg.firstNight || 'white') !== 'choose') {     // お告げ・ランダム: 占い師は選べない
+    S.night.divine = { by: me, target: firstNightTarget(me), auto: true };
+    $('nightText').textContent = 'あなたは占い師です。' + dummy;
+    $('nightResult').textContent = ((S.cfg.firstNight || 'white') === 'white' ? 'お告げ: ' : '占い結果: ') + resultText(S.night.divine.target) + '。';
+    S.night.userDone = true;
+  } else if (need === 'divine') {
+    $('nightText').textContent = 'あなたは占い師です。' + dummy + '占う相手を1人選んでください(結果は、あなただけが見ます)。';
+    for (const x of nightCandidates({ name: me }, 'divine')) {
+      const b = el('button', '', x + ' を占う');
+      b.type = 'button';
+      b.addEventListener('click', () => {
+        if (S.night.divine) return;
+        S.night.divine = { by: me, target: x };
+        lockButtons(box);
+        $('nightResult').textContent = '占い結果: ' + resultText(x) + '。';
+        S.night.userDone = true;
+        checkNightDone();
+      });
+      box.append(b);
+    }
+  } else if (need === 'bite') {
+    $('nightText').textContent = 'あなたは人狼です。襲う相手を1人選んでください。';
+    for (const x of nightCandidates({ name: me }, 'bite')) {
+      const b = el('button', '', x + ' を襲う');
+      b.type = 'button';
+      b.addEventListener('click', () => {
+        if (S.night.bite) return;
+        S.night.bite = { by: me, target: x };
+        lockButtons(box);
+        $('nightResult').textContent = x + ' さんを襲います。';
+        S.night.userDone = true;
+        checkNightDone();
+      });
+      box.append(b);
+    }
+  } else {
+    $('nightText').textContent = alive ? '夜になりました。あなたに行動はありません。他の人の行動を待っています…' : 'あなたは死亡しています。夜の結果を待っています…';
+  }
+  $('night').hidden = false;
+}
+async function askNight(a, kind) {
+  const cand = nightCandidates(a, kind);
+  const call = newCall(a, 'night');
+  let pick = null, why = '';
+  try {
+    const res = await ask(a, nightPrompt(a, kind, cand), { signal: call.ctl.signal, modelTier: S.cfg.tier, cache: false }, { type: 'night', cand, call });
+    closeCall(call, res);
+    const obj = parseOne(res.text);
+    if (obj && cand.includes(obj.target)) { pick = obj.target; why = String(obj.why || '').slice(0, 60); }
+  } catch (e) {
+    failCall(call, e);
+  }
+  if (!pick) {                                                         // 読み取れなかったときは、機械的に選ぶ(人狼は、占い師を名乗った人を先に)
+    const claimed = kind === 'bite' ? claims().map(([n]) => n).find((n) => cand.includes(n)) : null;
+    pick = claimed || cand[Math.floor(Math.random() * cand.length)];
+    why = '(読み取れなかったため、機械的に選んだ)';
+  }
+  if (S.phase !== 'night' || !S.night) return;
+  S.night[kind] = { by: a.name, target: pick, why };
+  a.reads.push({ t: S.duration, day: S.day, text: '(夜) ' + (kind === 'divine' ? '占う: ' : '襲う: ') + pick + (why ? ' — ' + why : '') });
+  S.night.pending.delete(kind);
+  checkNightDone();
+}
+function checkNightDone() {
+  const N = S.night;
+  if (S.phase !== 'night' || !N || N.ready || N.pending.size > 0 || !N.userDone) return;
+  N.ready = true;
+  if (N.n === 0 && $('night').hidden) { resolveNight(); return; }      // 初日で、あなたの夜の画面がなければ、そのまま朝へ
+  if (!S.night.divine || S.night.divine.by !== S.user) { if (S.night.n > 0 && !S.night.bite) $('nightText').textContent = '夜が明けます。'; }
+  $('dawnBtn').hidden = false;
+  $('dawnBtn').focus();
+}
+$('dawnBtn').addEventListener('click', () => { if (S.phase === 'night' && S.night && S.night.ready) resolveNight(); });
+function kill(name, cause) {
+  S.alive.delete(name);
+  S.dead.push({ name, day: S.day, cause });
+  const a = agentOf(name);
+  if (a) { a.dead = true; if (a.call) abortCall(a); a.queue.length = 0; }
+}
+function checkWin() {
+  const alive = alivePlayers();
+  const wolves = alive.filter((n) => S.roles[n] === '人狼').length;
+  if (wolves === 0) return 'village';
+  return wolves >= alive.length - wolves ? 'wolf' : null;
+}
+function resolveNight() {
+  const N = S.night;
+  if (!N || S.phase !== 'night') return;
+  S.phase = 'dawn';
+  $('night').hidden = true;
+  const n = N.n;
+  if (N.divine) {
+    const d = N.divine, seer = S.seer.name, result = verdictOf(d.target);
+    S.seer.log.push({ night: n, target: d.target, result, auto: !!d.auto });
+    S.events.push({ k: 'raw', text: seer + '→GM: 実行@' + seer + '→' + d.target }, { k: 'raw', text: '鯖→' + seer + ': ' + d.target + 'さんは人狼' + (result === '黒' ? 'です' : 'ではありません') });   // 文言は、log16 のもの
+  }
+  const wolf = wolfName();
+  if (n === 0) {
+    S.events.push({ k: 'raw', text: wolf + '→GM: 実行@' + wolf + '→初日犠牲者' }, { k: 'raw', text: '鯖→人狼: 初日犠牲者さんを噛みます' }, { k: 'sys', text: '初日犠牲者さんが死亡しました' }, { k: 'sys', text: '恐ろしい夜が明け、朝になりました。' });
+    beginDay(1);
+    return;
+  }
+  if (N.bite) {
+    S.events.push({ k: 'raw', text: N.bite.by + '→GM: 実行@' + N.bite.by + '→' + N.bite.target }, { k: 'raw', text: '鯖→人狼: ' + N.bite.target + 'さんを噛みます' });
+    publicNote(N.bite.target + 'さんが死亡しました');
+    kill(N.bite.target, 'bite');
+  }
+  publicNote('恐ろしい夜が明け、朝になりました。');
+  const win = checkWin();
+  if (win) { finishGame(win); return; }
+  beginDay(n + 1);
+}
+
+/* ---------- 昼 ---------- */
+function beginDay(d) {
+  S.day = d;
+  S.duration = S.cfg.dur;
+  S.totalSecs += S.duration;
+  S.votes = {}; S.userVote = null; S.voteDone = false;
+  if (d === 1) {
+    S.notes.push({ afterId: 0, text: '恐ろしい夜が明け、朝になりました。(初日犠牲者さんが死亡しました)' });
+    addNote('役職設定【' + rule().setup + '】 / 初日犠牲者さんが死亡しました / 恐ろしい夜が明け、朝になりました。');
+  } else {
+    addNote('—— ' + d + '日目 ——');
+  }
+  const me = S.user, aliveMe = S.alive.has(me);
+  const mine = S.seer && S.seer.name === me && S.seer.log.length ? '(占い: ' + S.seer.log.map((r) => nightName(r.night) + ' ' + r.target + ' は' + VERDICT[r.result]).join(' / ') + ')' : '';
+  $('roleBadge').textContent = 'あなた: ' + S.roles[me] + mine + (aliveMe ? '' : '・死亡') + (S.cfg.mode === 'judge' ? ' / 判定役: ' + NAME.casual : '') + (S.demo ? ' / デモ' : '');
+  $('night').hidden = true; $('setup').hidden = true; $('room').hidden = false; $('vote').hidden = true; $('result').hidden = true;
+  $('chatForm').hidden = false; $('msg').disabled = !aliveMe; $('msg').placeholder = aliveMe ? '発言を入力して Enter' : 'あなたは死亡しています(観戦中)';
+  for (const b of $('chatForm').querySelectorAll('button[type=submit]')) b.disabled = !aliveMe;
   S.t0 = performance.now();
   S.phase = 'talk';
+  for (const a of aliveAgents()) { a.queue = []; a.nextFree = 0; a.lastReq = -99; a.seenId = S.nextId - 1; a.aborts = 0; a.keepQueue = false; a.backoff = 0; a.fills = 0; a.opening = false; }
   scheduleOpeners();
   updateHud(0);
   S.timer = setInterval(tick, TICK_MS);
   tick();
-  $('msg').focus();
+  if (aliveMe) $('msg').focus();
 }
 function scheduleOpeners() {
-  S.agents.forEach((a, i) => {
+  aliveAgents().forEach((a, i) => {
     const pool = (OPENERS[a.kind][S.cfg.register] || OPENERS[a.kind]['タメ口']);
     const text = pool[Math.floor(Math.random() * pool.length)];
-    const start = 0.05 + (i === 0 ? 0 : 0.5 + Math.random() * 0.5);
+    const start = 0.05 + (i === 0 ? 0 : i * 0.35 + Math.random() * 0.5);
     const due = start + 0.1 + len(text) / S.cfg.cps;
     a.queue.push({ start, due, text, to: [], reqAt: 0, opener: true });
     a.nextFree = due + 0.2;
@@ -851,7 +1250,7 @@ function offerDemo() {
 $('startBtn').addEventListener('click', () => startGame(false));
 $('chatForm').addEventListener('submit', (e) => {
   e.preventDefault();
-  if (S.phase !== 'talk') return;
+  if (S.phase !== 'talk' || !S.alive.has(S.user)) return;
   const text = $('msg').value.trim();
   if (!text) return;
   $('msg').value = '';
@@ -860,7 +1259,7 @@ $('chatForm').addEventListener('submit', (e) => {
 });
 $('endBtn').addEventListener('click', () => endTalk());
 
-/* ---------- 投票と結果 ---------- */
+/* ---------- 投票・処刑・勝敗 ---------- */
 function endTalk(reason) {
   if (S.phase !== 'talk') return;
   S.phase = 'vote';
@@ -868,28 +1267,40 @@ function endTalk(reason) {
   for (const a of S.agents) { if (a.call) abortCall(a); a.queue.length = 0; }
   S.tEnd = Math.min(S.duration, elapsed());
   if (reason) addNote(reason);
-  addNote('投票時間になりました。話すのをやめてください。');
+  publicNote('投票時間になりました。話すのをやめてください。');
   updateHud(S.tEnd);
   $('typing').textContent = '';
   $('chatForm').hidden = true;
+  S.votes = {}; S.userVote = null; S.voteDone = false;
   const box = $('voteBtns');
   box.textContent = '';
-  for (const n of players().filter((x) => x !== S.user)) {
-    const b = el('button', '', n + ' に入れる');
-    b.type = 'button';
-    b.addEventListener('click', () => { S.userVote = n; for (const x of box.querySelectorAll('button')) x.disabled = true; $('voteStatus').textContent = n + ' に投票した。AI の投票を待っています…'; maybeFinish(); });
-    box.append(b);
+  if (S.alive.has(S.user)) {
+    for (const n of alivePlayers().filter((x) => x !== S.user)) {
+      const b = el('button', '', n + ' に入れる');
+      b.type = 'button';
+      b.addEventListener('click', () => {
+        S.userVote = n;
+        S.events.push({ k: 'raw', text: S.user + '→GM: 投票@' + S.user + '→' + n });
+        lockButtons(box);
+        $('voteStatus').textContent = n + ' に投票した。AI の投票を待っています…';
+        maybeFinish();
+      });
+      box.append(b);
+    }
+    $('voteStatus').textContent = 'AI が投票先を決めています…';
+  } else {
+    S.userVote = '(死亡)';
+    $('voteStatus').textContent = 'あなたは死亡しています。AI が投票先を決めています…';
   }
-  $('voteStatus').textContent = 'AI が投票先を決めています…';
   $('vote').hidden = false;
-  S.agents.forEach(askVote);
+  aliveAgents().forEach(askVote);
 }
 async function askVote(a) {
-  const cand = players().filter((n) => n !== a.name);
+  const cand = alivePlayers().filter((n) => n !== a.name);
   const call = newCall(a, 'vote');
   let pick = null, why = '';
   try {
-    const res = await ask(a, votePrompt(a, cand), { signal: call.ctl.signal, modelTier: S.cfg.tier, cache: false }, { type: 'vote', cand });
+    const res = await ask(a, votePrompt(a, cand), { signal: call.ctl.signal, modelTier: S.cfg.tier, cache: false }, { type: 'vote', cand, call });
     closeCall(call, res);
     const obj = parseOne(res.text);
     if (obj && cand.includes(obj.vote)) { pick = obj.vote; why = String(obj.why || '').slice(0, 60); }
@@ -897,34 +1308,55 @@ async function askVote(a) {
     failCall(call, e);
   }
   if (!pick) { pick = cand[Math.floor(Math.random() * cand.length)]; why = '(票先を読み取れなかったため、抽選)'; }
+  if (S.phase !== 'vote') return;
   S.votes[a.name] = { to: pick, why };
+  S.events.push({ k: 'raw', text: a.name + '→GM: 投票@' + a.name + '→' + pick });
   maybeFinish();
 }
 function maybeFinish() {
-  if (S.finished || S.userVote == null || S.agents.some((a) => !S.votes[a.name])) return;
-  S.finished = true;
-  S.phase = 'result';
-  const all = { [S.user]: { to: S.userVote, why: '' }, ...S.votes };
+  if (S.phase !== 'vote' || S.voteDone) return;
+  if ((S.alive.has(S.user) && S.userVote == null) || aliveAgents().some((a) => !S.votes[a.name])) return;
+  S.voteDone = true;
+  const order = alivePlayers();
+  const all = {};
+  for (const n of order) all[n] = n === S.user ? { to: S.userVote, why: '' } : S.votes[n];
   const tally = {};
-  for (const n of players()) tally[n] = 0;
+  for (const n of order) tally[n] = 0;
   for (const v of Object.values(all)) tally[v.to]++;
   const top = Math.max(...Object.values(tally));
-  const tied = players().filter((n) => tally[n] === top);
+  const tied = order.filter((n) => tally[n] === top);
   const executed = tied[Math.floor(Math.random() * tied.length)];
-  const wolf = players().find((n) => S.roles[n] === '人狼');
-  S.result = { all, tally, executed, tied: tied.length > 1, wolf, village: executed === wolf };
+  S.history.push({ day: S.day, order, all, tally, executed, tied: tied.length > 1 });
+  const block = '【投票結果】\n' + order.map((n) => n + '(' + tally[n] + '票)の投票先→' + all[n].to).join('\n') + '\n投票の結果【' + executed + '】さんが処刑されます';
+  const death = executed + 'さんが死亡しました';
+  S.events.push({ k: 'sys', text: death }, { k: 'sys', text: block });   // 本物のログでは、死亡の通知が、結果の表より先に出る
+  S.notes.push({ afterId: S.nextId - 1, text: block }, { afterId: S.nextId - 1, text: death });
+  addNote(block);
+  addNote(death);
+  kill(executed, 'execution');
+  const win = checkWin();
+  if (win) { finishGame(win); return; }
   $('vote').hidden = true;
+  beginNight(S.day);
+}
+function finishGame(win) {
+  S.winner = win; S.finished = true; S.phase = 'result';
+  clearInterval(S.timer);
+  const last = S.history[S.history.length - 1];
+  S.result = { village: win === 'village', executed: last.executed, tied: last.tied, tally: last.tally, all: last.all, wolf: wolfName() };
+  S.events.push({ k: 'sys', text: win === 'village' ? '人狼が全滅しました!【村人チーム】の勝利です!' : '人狼が村人の数より多くなりました!【人狼チーム】の勝利です!' });
+  $('vote').hidden = true; $('night').hidden = true;
   renderResult();
 }
 
 function computeMetrics() {
-  const dur = S.duration;
+  const dur = S.totalSecs || S.duration;
   const per = {};
   for (const a of S.agents) {
     const mine = S.calls.filter((c) => c.agent === a && c.type === 'chunk');
     const done = mine.filter((c) => c.end && !c.aborted && !c.error);
-    const tot = done.map((c) => (c.end - c.start) / 1000);
-    const ttft = done.filter((c) => c.first).map((c) => (c.first - c.start) / 1000);
+    const tot = done.map((c) => (c.end - (c.sent || c.start)) / 1000);
+    const ttft = done.filter((c) => c.first).map((c) => (c.first - (c.sent || c.start)) / 1000);
     per[a.name] = {
       calls: mine.length, done: done.length, aborted: mine.filter((c) => c.aborted).length, failed: mine.filter((c) => c.error && c.error !== 'cancelled').length,
       ttft: avg(ttft), total: avg(tot), max: tot.length ? Math.max(...tot) : null,
@@ -933,8 +1365,9 @@ function computeMetrics() {
     };
   }
   const react = (names) => {
-    const out = []; let wait = null;
+    const out = []; let wait = null, day = null;
     for (const p of S.posts) {
+      if (dayOf(p) !== day) { day = dayOf(p); wait = null; }                // 時刻は、日ごとに数え直す
       if (p.you) { if (wait === null) wait = p.t; }
       else if (wait !== null && names.includes(p.speaker) && p.reqAt >= wait) { out.push(p.t - wait); wait = null; }
     }
@@ -960,21 +1393,33 @@ function table(head, rows, numFrom, wrapCol) {
   return wrap;
 }
 function renderResult() {
-  const r = S.result, m = computeMetrics();
+  const m = computeMetrics();
+  const village = S.winner === 'village';
   const h = $('resultH');
-  h.textContent = r.village ? '人狼が全滅しました。村人チームの勝利' : '人狼が村人の数より多くなりました。人狼チームの勝利';
-  h.className = 'result-h ' + ((S.roles[S.user] === '人狼') === r.village ? 'lose' : 'win');
+  h.textContent = village ? '人狼が全滅しました。村人チームの勝利' : '人狼が村人の数より多くなりました。人狼チームの勝利';
+  h.className = 'result-h ' + ((S.roles[S.user] === '人狼') === village ? 'lose' : 'win');
   const body = $('resultBody');
   body.textContent = '';
-  const p1 = el('p', '', '処刑: ' + r.executed + '(' + S.roles[r.executed] + ')' + (r.tied ? ' 同数のため抽選' : ''));
-  body.append(p1);
-  body.append(table(['', '役職', '投票先', '得票', '理由'], players().map((n) => [n, S.roles[n], r.all[n].to, r.tally[n], r.all[n].why || '—']), 99, 4));
+  const multi = rule().multi;
+  for (const d of S.history) {
+    body.append(el('p', '', (multi ? d.day + '日目の' : '') + '処刑: ' + d.executed + '(' + S.roles[d.executed] + ')' + (d.tied ? ' 同数のため抽選' : '')));
+    body.append(table(['', '役職', '投票先', '得票', '理由'], d.order.map((n) => [n, S.roles[n], d.all[n].to, d.tally[n], d.all[n].why || '—']), 99, 4));
+  }
+  if (multi) {
+    const bites = S.dead.filter((d) => d.cause === 'bite').map((d) => d.day + '日目の夜に ' + d.name + '(' + S.roles[d.name] + ')が襲われた');
+    if (bites.length) body.append(el('p', 'note', bites.join(' / ')));
+  }
+  if (rule().seer) {
+    const cl = claims();
+    const results = S.seer.log.map((r) => nightName(r.night) + ': ' + r.target + ' → ' + VERDICT[r.result]).join(' / ');
+    body.append(el('p', 'note', '占い: ' + S.seer.name + '(占い師)の結果は、' + (results || 'なし') + '。人狼は ' + wolfName() + '。 占い師の名乗り・結果の報告を含む発言(機械的に拾ったもの): ' + (cl.length ? cl.map(([n, id]) => n + '(' + S.roles[n] + '・#' + id + ')').join('、') : 'なし')));
+  }
 
   body.append(el('h2', 'mt', '速さ'));
   const rows = S.agents.map((a) => { const x = m.per[a.name]; return [a.name, x.calls, x.aborted + '/' + x.failed, f1(x.ttft), f1(x.total), f1(x.max), x.tier, x.promptK == null ? '—' : x.promptK + 'k字']; });
   body.append(table(['AI', '呼出', '中断/失敗', '最初の文字まで(秒)', '全体(秒)', '最大(秒)', '実際の応答の階級', '入力'], rows, 1));
   const rs = (xs) => xs.length ? '平均 ' + f1(avg(xs)) + '秒 / 最大 ' + f1(Math.max(...xs)) + '秒(' + xs.length + '回)' : '—';
-  body.append(el('p', 'note', '反応時間(あなたの発言から、AI の最初の発言が出るまで): 2人のどちらか ' + rs(m.reactAny) + ' / ブン ' + rs(m.reactStrong) + '。待ち時間・モデルの応答・打鍵の表示を含む。'));
+  body.append(el('p', 'note', '反応時間(あなたの発言から、AI の最初の発言が出るまで): AI のどれか ' + rs(m.reactAny) + ' / ブン ' + rs(m.reactStrong) + '。待ち時間・モデルの応答・打鍵の表示を含む。'));
   if (S.warmMs != null) body.append(el('p', 'note', '接続確認(短い呼び出し1回): ' + f1(S.warmMs / 1000) + '秒'));
 
   body.append(el('h2', 'mt', '量'));
@@ -988,7 +1433,7 @@ function renderResult() {
     if (!a.reads.length) continue;
     any = true;
     const b = el('div', 'mt'); const nm = el('b', '', a.name); nm.style.color = colorOf(a.name); b.append(nm);
-    const box = el('pre', 'box', a.reads.map((x) => '[' + fmt(x.t) + '] ' + x.text).join('\n'));
+    const box = el('pre', 'box', a.reads.map((x) => '[' + (multi ? (x.day || 1) + '日目 ' : '') + fmt(x.t) + '] ' + x.text).join('\n'));
     reads.append(b, box);
   }
   if (!any) reads.append(el('p', 'note', '記録がない'));
@@ -998,16 +1443,17 @@ function renderResult() {
 }
 function diagRows() {
   return S.calls.map((c) => ({
-    agent: c.agent.name, type: c.type, t: Number(c.tStart.toFixed(1)), tier: c.tier, applied: c.applied,
-    ttft: c.first ? Number(((c.first - c.start) / 1000).toFixed(2)) : null, total: c.end ? Number(((c.end - c.start) / 1000).toFixed(2)) : null,
+    agent: c.agent.name, type: c.type, day: c.day, t: Number(c.tStart.toFixed(1)), tier: c.tier, applied: c.applied,
+    ttft: c.first ? Number(((c.first - (c.sent || c.start)) / 1000).toFixed(2)) : null, total: c.end ? Number(((c.end - (c.sent || c.start)) / 1000).toFixed(2)) : null,
+    waited: c.sent ? Number(((c.sent - c.start) / 1000).toFixed(2)) : null,
     chars: c.chars, lines: c.lines, promptChars: c.promptChars, aborted: c.aborted, error: c.error, head: c.head.slice(0, 120),
   }));
 }
 function renderDiag() {
   const rows = diagRows();
   $('diagBody').textContent = '';
-  $('diagBody').append(table(['AI', '種類', '開始(秒)', '要求', '実際', '最初の文字', '全体', '出力字', '行', '中断', 'エラー'],
-    rows.map((x) => [x.agent, x.type, x.t, x.tier, x.applied || '—', x.ttft == null ? '—' : x.ttft, x.total == null ? '—' : x.total, x.chars, x.lines, x.aborted ? '○' : '', x.error || '']), 2));
+  $('diagBody').append(table(['AI', '種類', '開始(秒)', '要求', '実際', '順番待ち', '最初の文字', '全体', '出力字', '行', '中断', 'エラー'],
+    rows.map((x) => [x.agent, x.type, (rule().multi ? x.day + '日目 ' : '') + x.t, x.tier, x.applied || '—', x.waited == null ? '—' : x.waited, x.ttft == null ? '—' : x.ttft, x.total == null ? '—' : x.total, x.chars, x.lines, x.aborted ? '○' : '', x.error || '']), 2));
 }
 
 /* ---------- コピー ---------- */
@@ -1023,36 +1469,27 @@ async function copyText(text, label) {
     note.textContent = '自動でコピーできなかったので、下の欄を選択しました。コピーしてください。';
   }
 }
+// zinro.net の形式(新しい発言が上)。占いの通知の文言は、log16 のとおり
 function zinroLog() {
-  const r = S.result, out = [];
-  const lines = [];
-  lines.push('鯖: ' + (r.village ? '人狼が全滅しました!【村人チーム】の勝利です!' : '人狼が村人の数より多くなりました!【人狼チーム】の勝利です!'));
-  lines.push('鯖: 【投票結果】\n' + players().map((n) => n + '(' + r.tally[n] + '票)の投票先→' + r.all[n].to).join('\n') + '\n投票の結果【' + r.executed + '】さんが処刑されます');
-  lines.push('鯖: ' + r.executed + 'さんが死亡しました');
-  for (const n of [...players()].reverse()) lines.push(n + '→GM: 投票@' + n + '→' + r.all[n].to);
-  lines.push('鯖: 投票時間になりました。話すのをやめてください。');
-  for (const p of [...S.posts].reverse()) lines.push(p.speaker + ': ' + p.text);
-  lines.push('鯖: 恐ろしい夜が明け、朝になりました。', '鯖: 初日犠牲者さんが死亡しました', '鯖: 夜になりました…役職の人は能力を実行してください', '鯖: ゲームを開始します', '鯖: 役職設定【人狼-1,村人-3,役欠け:あり】');
-  for (const n of [...players()].reverse()) lines.push('鯖→' + n + ': あなたは【' + S.roles[n] + '】です');
-  return out.concat(lines).join('\n');
+  return [...S.events].reverse().map((e) => (e.k === 'post' ? e.speaker + ': ' + e.text : (e.k === 'sys' ? '鯖: ' + e.text : e.text))).join('\n');
 }
 $('copyLog').addEventListener('click', () => { if (S.result) copyText(zinroLog(), 'ログ'); });
 $('copyDiag').addEventListener('click', () => {
-  copyText(JSON.stringify({ settings: S.cfg, demo: S.demo, warmMs: S.warmMs, duration: S.duration, calls: diagRows(), flags: S.flags }, null, 1), '診断');
+  copyText(JSON.stringify({ settings: S.cfg, demo: S.demo, warmMs: S.warmMs, duration: S.duration, days: S.history.length, calls: diagRows(), flags: S.flags }, null, 1), '診断');
 });
 
 /* ---------- もう一度 ---------- */
 $('again').addEventListener('click', () => {
   clearInterval(S.timer);
   for (const a of S.agents) if (a.call) abortCall(a);
-  S.phase = 'setup'; S.posts = []; S.agents = []; S.calls = []; S.result = null;
-  $('room').hidden = true; $('vote').hidden = true; $('result').hidden = true; $('setup').hidden = false;
+  S.phase = 'setup'; S.posts = []; S.agents = []; S.calls = []; S.result = null; S.seer = null; S.night = null; S.notes = []; S.events = []; S.history = []; S.dead = []; S.alive = new Set();
+  $('room').hidden = true; $('vote').hidden = true; $('result').hidden = true; $('night').hidden = true; $('setup').hidden = false;
   $('startBtn').disabled = false;
   $('copyNote').textContent = ''; $('fallback').hidden = true;
   setConn(S.sample ? 'Claude に接続できます。' : 'Claude を呼べません(Claude のアプリ内の表示で開くと動きます)。いまはデモ(定型応答。AI は動いていない)で動きます。');
 });
 
 /* テスト用の読み出し口(画面には出ない) */
-window.__room = { S, endTalk, tick, chunkPrompt, votePrompt, makeAgent, nextObject, onChunkText, newCall, assignRoles, sysPrompt };
+window.__room = { S, endTalk, tick, chunkPrompt, votePrompt, nightPrompt, makeAgent, nextObject, onChunkText, newCall, assignRoles, sysPrompt, claims, alivePlayers, checkWin, GATE };
 })();
 </script>

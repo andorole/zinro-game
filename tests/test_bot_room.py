@@ -24,7 +24,7 @@ class RoomTest(unittest.TestCase):
         cls.html = build_room(ROOT)
 
     def test_page_starts_with_its_title_and_has_no_document_skeleton(self):
-        self.assertTrue(self.html.lstrip().startswith("<title>4A練習ルーム</title>"))
+        self.assertTrue(self.html.lstrip().startswith("<title>人狼練習ルーム</title>"))
         lowered = self.html.lower()
         self.assertNotIn("<!doctype", lowered)
         self.assertIsNone(re.search(r"<(html|head|body)[\s>]", lowered))  # <header> は構わない
@@ -32,7 +32,7 @@ class RoomTest(unittest.TestCase):
 
     def test_prompts_are_embedded_per_role(self):
         data = embedded(self.html)
-        self.assertEqual(set(data), {"strong", "casual", "judge"})
+        self.assertEqual(set(data), {"strong", "casual", "judge", "seer4", "seer6"})
         for role in ROLES:
             strong, casual = data["strong"][role], data["casual"][role]
             self.assertIn(f"役職は{role}", strong)
@@ -116,6 +116,39 @@ class RoomTest(unittest.TestCase):
             seconds = 300 + 90 * extensions
             self.assertIn(f'data-sec="{seconds}"', self.html)
             self.assertEqual((seconds - low) % step, 0)
+
+    def test_the_seer_forms_replace_the_no_seer_sections_for_every_role(self):
+        data = embedded(self.html)
+        for ruleset, field in (("seer4", "占い入りの4A"), ("seer6", "占い入りの6A")):
+            for role in ("占い師", "人狼", "村人"):
+                strong, casual = data[ruleset]["strong"][role], data[ruleset]["casual"][role]
+                self.assertIn(f"役職は{role}", strong)
+                self.assertIn(f"役職は{role}", casual)
+                self.assertIn(field, strong)
+                self.assertIn("## 7. 占い入りの場: 役職ごとの動き", strong)
+                for old in ("占いなしの4A(", "占いなしの小人数では、役職の情報がない", "## 8. 人狼のとき", "もう一人の村人と同じ相手"):
+                    self.assertNotIn(old, strong)   # 占いなしを前提にした行は残さない
+                self.assertIn(f"- {role}のとき: ", casual)
+                self.assertNotIn("占いなし。人狼1", casual)
+                self.assertIn("{me}", strong + casual)
+                self.assertIn("1行に1つの JSON", strong)
+
+    def test_the_6a_instructions_carry_the_memo_and_the_log_rules(self):
+        six = embedded(self.html)["seer6"]
+        seer, wolf, villager = six["strong"]["占い師"], six["strong"]["人狼"], six["strong"]["村人"]
+        # 確率論メモ(knowledge/seer_6a7a.md)の結論: 6A は占いを即露出。狼は初日に騙れない。最終日の騙りは白だけを出す
+        self.assertIn("即露出が最良", seer)
+        self.assertIn("おはよう。占いCO。〇〇白", seer)   # log16 の名乗り方
+        self.assertIn("2人とも吊ればいい(ロラ)", seer)
+        self.assertIn("今日@50に指定を出す", seer)         # log16 の指定の出し方
+        self.assertIn("昼1は、占いを騙らない", wolf)
+        self.assertIn("白だけを出して、グレーを2人以上残す形", wolf)
+        self.assertIn("露出した占い師を必ず噛む", wolf)
+        self.assertIn("確白が、あなたとグレーのどちらを吊るかを決める", wolf)
+        self.assertIn("ロラ(両方吊る)を提案してよい", villager)
+        self.assertIn("確白を吊らない", villager)
+        self.assertIn("縄は2本", seer)
+        self.assertIn("昼1(議論のあと、投票で1人を処刑) → 夜", seer)
 
     @unittest.skipUnless(shutil.which("node"), "node がない")
     def test_page_script_parses(self):

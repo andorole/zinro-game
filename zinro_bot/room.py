@@ -10,6 +10,7 @@ import json
 from pathlib import Path
 
 from .prompt import as_text, build_system
+from .rules import PLAIN, SEER_ROLES, SEER_RULESETS, apply_seer_casual
 
 TEMPLATE = Path(__file__).with_name("room_template.html")
 MARKER = "/*__PROMPTS__*/"
@@ -98,17 +99,25 @@ JUDGE = """# 人狼チャットの判定役
 """
 
 
-def casual_prompt(role: str) -> str:
-    return CASUAL.replace("{role}", role)
+def casual_prompt(role: str, ruleset: str = PLAIN) -> str:
+    text = CASUAL.replace("{role}", role)
+    return apply_seer_casual(text, role, ruleset) if ruleset in SEER_RULESETS else text
 
 
 def build_prompts(root: Path) -> dict:
-    """{"strong": {役職: プロンプト}, "casual": {役職: プロンプト}, "judge": {"村人": プロンプト}}。{me} と {register} は、ページが置き換える。"""
+    """{"strong": {役職: プロンプト}, "casual": {役職: プロンプト}, "judge": {"村人": プロンプト}, "seer4": {"strong": {...}, "casual": {...}}, "seer6": {...}}。
+    seer4・seer6 は、占い入りの4A・6A(占い師・人狼・村人)。{me} と {register} は、ページが置き換える。"""
     strong, casual = {}, {}
     for role in ROLES:
         strong[role] = as_text(build_system(Path(root), "{me}", role, "{register}", extra_moves=CONVERSATION_MOVES, output_format="timed"))
         casual[role] = casual_prompt(role)
-    return {"strong": strong, "casual": casual, "judge": {"村人": JUDGE}}
+    out = {"strong": strong, "casual": casual, "judge": {"村人": JUDGE}}
+    for ruleset in SEER_RULESETS:
+        out[ruleset] = {"strong": {}, "casual": {}}
+        for role in SEER_ROLES:
+            out[ruleset]["strong"][role] = as_text(build_system(Path(root), "{me}", role, "{register}", extra_moves=CONVERSATION_MOVES, output_format="timed", ruleset=ruleset))
+            out[ruleset]["casual"][role] = casual_prompt(role, ruleset)
+    return out
 
 
 def build_room(root: Path) -> str:
