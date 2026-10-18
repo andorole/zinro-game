@@ -154,13 +154,24 @@ def tracked_files(root: Path) -> list[Path]:
     return [path for path in files if path.is_file()]
 
 
-def check_names(root: Path) -> list[str]:
-    """匿名化の対応表(git 管理外)にある実名が、git 管理のファイルに混ざっていないか。1文字の名前は、文中の文字と区別できないので調べない。"""
+def private_names(root: Path) -> set[str]:
+    """匿名化の対応表(git 管理外)にある、混入を調べる実名・通称。
+
+    1文字の名前は、文中の文字と区別できないので調べない。表の任意のキー plain_words は、
+    ふつうの語句でもある名前(例: ハンドル名が「なるほどね」の人)で、文中の語句と区別できないので、
+    その表では調べない。同じ名前が別の表で実名として載っていれば、そちらの表の分は調べる。
+    """
     names: set[str] = set()
-    for path in (root / "logs/private").glob("*.players.json"):
+    for path in sorted((root / "logs/private").glob("*.players.json")):
         data = json.loads(path.read_text(encoding="utf-8"))
-        names |= set(data["players"].values()) | set(data["aliases"])
-    names = {name for name in names if len(name) >= MIN_NAME_LENGTH}
+        plain = set(data.get("plain_words", []))
+        names |= (set(data["players"].values()) | set(data["aliases"])) - plain
+    return {name for name in names if len(name) >= MIN_NAME_LENGTH}
+
+
+def check_names(root: Path) -> list[str]:
+    """匿名化の対応表(git 管理外)にある実名が、git 管理のファイルに混ざっていないか。"""
+    names = private_names(root)
     problems = []
     for path in tracked_files(root):
         text = path.read_text(encoding="utf-8")

@@ -1,5 +1,7 @@
 """使い方:
   python -m zinro_learn ingest logs/raw/<id>.txt --players "実名1=A,実名2=B" --alias 通称=実名1 --discussion-seconds 300
+      ふつうの語句でもある名前(例: ハンドル名が「なるほどね」)は --plain-word 名前 を付ける(複数指定可)。
+      logs/private/<id>.players.json の plain_words に入り、check の実名混入の検査から外れる。
   python -m zinro_learn stats logs/normalized/<id>.json [...]
   python -m zinro_learn sync     # 発言例から、ガイドの「発言の型」の表を作り直す
   python -m zinro_learn check    # knowledge/ の整合性を調べる(問題があれば終了コード 1)
@@ -22,6 +24,16 @@ def parse_pairs(value: str) -> dict[str, str]:
     return {key.strip(): val.strip() for key, val in pairs}
 
 
+def parse_names(values: list[str]) -> list[str]:
+    """--plain-word の値(複数指定も、1つの値のコンマ区切りも可)を、重複なく並べる。"""
+    names: list[str] = []
+    for value in values:
+        for name in (item.strip() for item in value.split(",")):
+            if name and name not in names:
+                names.append(name)
+    return names
+
+
 def write_json(path: Path, data) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(data, ensure_ascii=False, indent=1) + "\n", encoding="utf-8")
@@ -36,12 +48,19 @@ def ingest(args) -> None:
     aliases = {}
     for item in args.alias:
         aliases.update(parse_pairs(item))
+    plain_words = parse_names(args.plain_word)
+    unknown = [name for name in plain_words if name not in mapping and name not in aliases]
+    if unknown:
+        raise ValueError(f"--plain-word の {unknown} が、プレイヤー名にも通称にもありません")
     anonymized = anonymize(game, mapping, aliases)
 
     out = Path(args.out_dir) / f"{game['game_id']}.json"
     private = Path(args.private_dir) / f"{game['game_id']}.players.json"
+    table = {"players": {label: name for name, label in mapping.items()}, "aliases": aliases}
+    if plain_words:  # 指定のないログの対応表は、これまでと同じ形のまま
+        table["plain_words"] = plain_words
     write_json(out, anonymized)
-    write_json(private, {"players": {label: name for name, label in mapping.items()}, "aliases": aliases})
+    write_json(private, table)
     print(f"{out}: {len(anonymized['events'])} events, winner={anonymized['winner']}")
     print(f"{private}: 匿名名と実名の対応(git 管理外)")
 
@@ -88,6 +107,10 @@ def main(argv=None) -> None:
     p.add_argument("--order", choices=["auto", "newest-first", "oldest-first"], default="auto")
     p.add_argument("--players", default="", help='"実名=A,実名=B"。指定のない人は発言順に割り当てる')
     p.add_argument("--alias", action="append", default=[], help='"通称=実名"。本文中の通称も匿名化する')
+    p.add_argument(
+        "--plain-word", action="append", default=[],
+        help="ふつうの語句でもある名前(例: ハンドル名が「なるほどね」)。check の実名混入の検査から外す。複数指定可",
+    )
     p.add_argument("--out-dir", default="logs/normalized")
     p.add_argument("--private-dir", default="logs/private")
     p.add_argument("--discussion-seconds", type=int, help="1日あたりの議論時間(延長前の秒数)。話量(字/分)の計算に使う")

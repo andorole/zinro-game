@@ -39,6 +39,13 @@ GAME = {
 }
 
 
+def write_private(root: Path, game_id: str, players: dict, aliases=None, **extra) -> None:
+    """logs/private/<id>.players.json(匿名名と実名の対応表)を作る。plain_words などの任意のキーは extra で足す。"""
+    (root / "logs/private").mkdir(parents=True, exist_ok=True)
+    table = {"players": players, "aliases": aliases or {}, **extra}
+    (root / f"logs/private/{game_id}.players.json").write_text(json.dumps(table, ensure_ascii=False), encoding="utf-8")
+
+
 def write_project(root: Path, examples=EXAMPLES, table=TABLE, game=GAME) -> None:
     (root / "knowledge").mkdir(parents=True)
     rows = "".join(json.dumps(e, ensure_ascii=False) + "\n" for e in examples)
@@ -136,6 +143,40 @@ class CheckTest(unittest.TestCase):
         )
         (self.root / "README.md").write_text("Xの文字を含む説明\n", encoding="utf-8")
         self.assertEqual(check(self.root), [])
+
+    def test_plain_words_are_not_reported_but_other_names_are(self):
+        # ハンドル名が「なるほどね」(ふつうの語句でもある)の人がいる表。語句としての「なるほどね」は、実名とみなさない
+        write_project(self.root, table=sync_table(TABLE, EXAMPLES).replace(PLACEHOLDER, "x"))
+        write_private(self.root, "g1", {"A": "テスト太郎", "C": "なるほどね"}, plain_words=["なるほどね"])
+        (self.root / "README.md").write_text("なるほどね、と言った。テスト太郎の発言を載せた\n", encoding="utf-8")
+        problems = check(self.root)
+        self.assertEqual(problems, ["README.md に実名 'テスト太郎' がある"])
+
+    def test_without_plain_words_the_same_text_is_reported(self):
+        write_project(self.root, table=sync_table(TABLE, EXAMPLES).replace(PLACEHOLDER, "x"))
+        write_private(self.root, "g1", {"A": "テスト太郎", "C": "なるほどね"})
+        (self.root / "README.md").write_text("なるほどね、と言った\n", encoding="utf-8")
+        self.assertEqual(check(self.root), ["README.md に実名 'なるほどね' がある"])
+
+    def test_plain_words_may_name_an_alias(self):
+        write_project(self.root, table=sync_table(TABLE, EXAMPLES).replace(PLACEHOLDER, "x"))
+        write_private(self.root, "g1", {"A": "テスト太郎"}, {"なるほど": "テスト太郎", "太郎": "テスト太郎"}, plain_words=["なるほど"])
+        (self.root / "README.md").write_text("なるほど、と言った。太郎の発言\n", encoding="utf-8")
+        self.assertEqual(check(self.root), ["README.md に実名 '太郎' がある"])
+
+    def test_plain_words_apply_only_to_the_table_that_declares_them(self):
+        # 別の表で実名として載っている名前は、plain_words を付けた表があっても調べ続ける
+        write_project(self.root, table=sync_table(TABLE, EXAMPLES).replace(PLACEHOLDER, "x"))
+        write_private(self.root, "g1", {"C": "なるほどね"}, plain_words=["なるほどね"])
+        write_private(self.root, "g2", {"C": "なるほどね"})
+        (self.root / "README.md").write_text("なるほどね、と言った\n", encoding="utf-8")
+        self.assertEqual(check(self.root), ["README.md に実名 'なるほどね' がある"])
+
+    def test_plain_words_do_not_lift_the_one_letter_rule_or_hide_other_files(self):
+        write_project(self.root, table=sync_table(TABLE, EXAMPLES).replace(PLACEHOLDER, "x"))
+        write_private(self.root, "g1", {"A": "テスト太郎", "C": "なるほどね", "O1": "X"}, plain_words=["なるほどね", "X"])
+        (self.root / "knowledge/notes.md").write_text("なるほどね。X。テスト太郎\n", encoding="utf-8")
+        self.assertEqual(check(self.root), ["knowledge/notes.md に実名 'テスト太郎' がある"])
 
     def test_longest_overlap(self):
         self.assertEqual(longest_overlap("あいうえお", "かいうえき"), 3)

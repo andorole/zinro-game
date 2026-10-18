@@ -1,8 +1,8 @@
 import json
 import unittest
 
-from zinro_learn.analyze import speech_stats
-from zinro_learn.parse import anonymize, build_mapping, parse_game
+from zinro_learn.analyze import discussion_days, extension_by_day, format_stats, speech_stats
+from zinro_learn.parse import anonymize, build_mapping, observer_names, parse_game
 
 # 形式の確認用に作った架空のログ(実在のログではない)。新しい発言が上。
 SAMPLE = """\
@@ -68,6 +68,78 @@ RE：ハル: ボブさん、どう思いますか？
 鯖→RE：ハル: あなたは【人狼】です
 鯖→ボブ: あなたは【村人】です
 """
+
+
+def newest_first(*messages: str) -> str:
+    """時間順に並べた発言(複数行の発言は1要素)を、貼り付けたままの形(新しい発言が上)に直す。"""
+    return "\n".join(reversed(messages)) + "\n"
+
+
+# 占い入りの6A(昼1 → 夜 → 昼2の2日かかる)の形を確かめる、架空のログ(実在のログではない)。
+# ハンドル名「なるほどね」の人は、ふつうの語句でもある名前の例(本文中の「なるほどね」は語句)。
+SEER = newest_first(
+    "鯖→アリス: あなたは【村人】です",
+    "鯖→ボブ: あなたは【占い師】です",
+    "鯖→カレン: あなたは【人狼】です",
+    "鯖→なるほどね: あなたは【村人】です",
+    "鯖→ミラ: あなたは【村人】です",
+    "鯖→初日犠牲者: あなたは【村人】です",
+    "鯖: 役職設定【人狼-1,占い師-1,村人-4,役欠け:なし】",
+    "鯖: ゲームを開始します",
+    "鯖: 夜になりました…役職の人は能力を実行してください",
+    "ボブ→GM: 実行@ボブ→アリス",
+    "鯖→ボブ: アリスさんは人狼ではありません",
+    "初日犠牲者→GM: 実行@初日犠牲者→ミラ",
+    "ミラ→ミラ: 初日は何も起きないのかな",
+    "人狼→GM: 実行@カレン→初日犠牲者",
+    "鯖→人狼: 初日犠牲者さんを噛みます",
+    "鯖: 初日犠牲者さんが死亡しました",
+    "鯖: 恐ろしい夜が明け、朝になりました。",
+    "アリス: おはようございます",
+    "ボブ: おはよう（占いCO)アリス白",
+    "鯖: 時間を90秒延長しました",
+    "鯖: 時間を90秒延長しました",
+    "なるほどね: なるほどね、じゃあボブさんを信じる\n吊り先はミラさんかカレンさんかな",
+    "カレン: ミラさんが怪しいと思います",
+    "ユキ→霊界: 観戦しています",
+    "鯖: 投票時間になりました。話すのをやめてください。",
+    "アリス→GM: 投票@アリス→ミラ",
+    "ボブ→GM: 投票@ボブ→ミラ",
+    "カレン→GM: 投票@カレン→ミラ",
+    "ミラ→GM: 投票@ミラ→カレン",
+    "なるほどね→GM: 投票@なるほどね→ミラ",
+    "鯖: ミラさんが死亡しました",
+    "鯖: 【投票結果】\n"
+    "アリス(0票)の投票先→ミラ\n"
+    "ボブ(0票)の投票先→ミラ\n"
+    "カレン(1票)の投票先→ミラ\n"
+    "ミラ(4票)の投票先→カレン\n"
+    "なるほどね(0票)の投票先→ミラ\n"
+    "投票の結果【ミラ】さんが処刑されます",
+    "鯖: 夜になりました…役職の人は能力を実行してください",
+    "ボブ→GM: 実行@ボブ→カレン",
+    "鯖→ボブ: カレンさんは人狼です",
+    "ユキ→霊界: 占い師が噛まれそう",
+    "人狼→GM: 実行@カレン→ボブ",
+    "鯖→人狼: ボブさんを噛みます",
+    "鯖: ボブさんが死亡しました",
+    "鯖: 恐ろしい夜が明け、朝になりました。",
+    "アリス: ボブさんの結果が聞けなかったね",
+    "鯖: 時間を90秒延長しました",
+    "カレン: アリスさんと、なるほどねさんなら、どっちを吊りますか？",
+    "なるほどね: カレンさんでいい",
+    "鯖: 投票時間になりました。話すのをやめてください。",
+    "アリス→GM: 投票@アリス→カレン",
+    "カレン→GM: 投票@カレン→アリス",
+    "なるほどね→GM: 投票@なるほどね→カレン",
+    "鯖: カレンさんが死亡しました",
+    "鯖: 【投票結果】\n"
+    "アリス(0票)の投票先→カレン\n"
+    "カレン(2票)の投票先→アリス\n"
+    "なるほどね(0票)の投票先→カレン\n"
+    "投票の結果【カレン】さんが処刑されます",
+    "鯖: 人狼が全滅しました!【村人チーム】の勝利です!",
+)
 
 
 class ParseTest(unittest.TestCase):
@@ -226,6 +298,115 @@ class StatsTest(unittest.TestCase):
         self.assertEqual(
             stats["speakers"]["A"]["chars_per_minute"], round(stats["speakers"]["A"]["chars_total"] / 4.0, 1)
         )
+
+
+class SeerGameTest(unittest.TestCase):
+    """占い師のいる6A。昼1 → 夜 → 昼2の2日かかり、投票結果が2回出る。"""
+
+    def setUp(self):
+        self.game = parse_game(SEER, game_id="seer")
+        self.events = self.game["events"]
+
+    def event(self, kind, text, **fields):
+        return next(e for e in self.events if e["kind"] == kind and text in e["text"] and all(e.get(k) == v for k, v in fields.items()))
+
+    def test_order_setup_and_roles(self):
+        self.assertEqual(self.events[0]["kind"], "private")
+        self.assertEqual(self.events[-1]["phase"], "end")
+        self.assertEqual(self.game["setup"], "人狼-1,占い師-1,村人-4,役欠け:なし")
+        self.assertEqual(self.game["players"]["ボブ"], {"role": "占い師"})
+        self.assertTrue(self.game["players"]["初日犠牲者"]["dummy"])
+        self.assertEqual(self.game["winner"], "村人チーム")
+
+    def test_phase_and_day_over_two_days(self):
+        first_night = self.event("command", "ボブ→アリス")
+        self.assertEqual((first_night["phase"], first_night["day"]), ("night", 0))
+        mornings = [e for e in self.events if "朝になりました" in e["text"]]
+        self.assertEqual([(e["phase"], e["day"]) for e in mornings], [("day", 1), ("day", 2)])
+        votes = [e for e in self.events if "投票時間になりました" in e["text"]]
+        self.assertEqual([(e["phase"], e["day"]) for e in votes], [("vote", 1), ("vote", 2)])
+        second_night = self.event("command", "ボブ→カレン")
+        self.assertEqual((second_night["phase"], second_night["day"]), ("night", 1))
+        speech = [e for e in self.events if e["kind"] == "speech"]
+        self.assertEqual({(e["phase"], e["day"]) for e in speech}, {("day", 1), ("day", 2)})
+        self.assertEqual(discussion_days(self.game), 2)
+
+    def test_divination_notices_and_commands(self):
+        white = self.event("private", "アリスさんは人狼ではありません")
+        black = self.event("private", "カレンさんは人狼です")
+        self.assertEqual((white["to"], white["phase"], white["day"]), ("ボブ", "night", 0))
+        self.assertEqual((black["to"], black["phase"], black["day"]), ("ボブ", "night", 1))
+        self.assertIsNone(white["speaker"])
+        seer_commands = [
+            (e["day"], e["target"]) for e in self.events
+            if e["kind"] == "command" and e["actor"] == "ボブ" and e["action"] == "実行"
+        ]
+        self.assertEqual(seer_commands, [(0, "アリス"), (1, "カレン")])
+        wolf = self.event("command", "カレン→ボブ")
+        self.assertEqual((wolf["speaker"], wolf["actor"], wolf["target"]), ("人狼", "カレン", "ボブ"))
+        dummy = self.event("command", "初日犠牲者→ミラ")
+        self.assertEqual((dummy["actor"], dummy["target"]), ("初日犠牲者", "ミラ"))
+        # 能力の行・結果の通知・独り言・霊界は、どれも発言として数えない
+        self.assertEqual(len([e for e in self.events if e["kind"] == "speech"]), 7)
+
+    def test_two_vote_results_and_deaths(self):
+        results = [e for e in self.events if "votes" in e]
+        self.assertEqual([e["executed"] for e in results], ["ミラ", "カレン"])
+        self.assertEqual([e["day"] for e in results], [1, 2])
+        self.assertIn({"player": "ミラ", "received": 4, "voted_for": "カレン"}, results[0]["votes"])
+        self.assertEqual(len(results[1]["votes"]), 3)
+        deaths = [(e["death"], e["phase"], e["day"]) for e in self.events if "death" in e]
+        self.assertEqual(
+            deaths,
+            [("初日犠牲者", "night", 0), ("ミラ", "vote", 1), ("ボブ", "night", 1), ("カレン", "vote", 2)],
+        )
+
+    def test_spirit_talk_stays_out_of_speech(self):
+        spirits = [e for e in self.events if e["kind"] == "spirit"]
+        self.assertEqual([e["phase"] for e in spirits], ["day", "night"])
+        self.assertEqual(observer_names(self.game), ["ユキ"])
+
+    def test_extension_is_counted_in_total_and_by_day(self):
+        self.assertEqual(self.game["extension_seconds"], 270)
+        self.assertEqual(extension_by_day(self.game), {1: 180, 2: 90})
+
+    def test_plain_handle_is_replaced_everywhere_in_the_text(self):
+        mapping = build_mapping(self.game, {"なるほどね": "C"})
+        anonymized = anonymize(self.game, mapping)
+        speech = next(e for e in anonymized["events"] if e["kind"] == "speech" and e["speaker"] == "C")
+        # 本文中の語句としての「なるほどね」も、名前と区別できないので置き換わる(読むときは前後で見分ける)
+        self.assertTrue(speech["text"].startswith("《C》、じゃあ"))
+        self.assertNotIn("なるほどね", json.dumps(anonymized, ensure_ascii=False))
+
+    def test_discussion_minutes_cover_both_days(self):
+        self.game["discussion_seconds"] = 300
+        stats = speech_stats(anonymize(self.game, build_mapping(self.game)))
+        self.assertEqual(stats["minutes"], 14.5)  # (300秒 × 2日 + 延長270秒) / 60
+        self.assertEqual(stats["chars_per_minute"], round(stats["chars_total"] / 14.5, 1))
+        self.assertEqual(stats["messages_per_minute"], round(7 / 14.5, 1))
+
+    def test_breakdown_by_day(self):
+        self.game["discussion_seconds"] = 300
+        stats = speech_stats(anonymize(self.game, build_mapping(self.game)))
+        first, second = stats["days"]
+        self.assertEqual((first["day"], first["seconds"], first["messages"]), (1, 480, 4))  # 300 + 90 × 2
+        self.assertEqual((second["day"], second["seconds"], second["messages"]), (2, 390, 3))  # 300 + 90 × 1
+        self.assertEqual(first["messages"] + second["messages"], stats["speech_messages"])
+        self.assertEqual(first["chars"] + second["chars"], stats["chars_total"])
+        self.assertEqual(first["chars_per_minute"], round(first["chars"] / 8, 1))
+        self.assertEqual(second["chars_per_minute"], round(second["chars"] / 6.5, 1))
+        self.assertEqual(sum(d["speakers"]["C"]["messages"] for d in stats["days"]), stats["speakers"]["C"]["messages"])
+        report = format_stats(stats)
+        self.assertIn("day 1: 発言 4 件", report)
+        self.assertIn("day 2: 発言 3 件", report)
+
+    def test_breakdown_needs_two_days_and_discussion_seconds(self):
+        self.assertNotIn("seconds", speech_stats(anonymize(self.game, build_mapping(self.game)))["days"][0])
+        single = parse_game(SAMPLE, game_id="sample")
+        single["discussion_seconds"] = 150
+        stats = speech_stats(anonymize(single, build_mapping(single)))
+        self.assertNotIn("days", stats)  # 1日のゲームの出力は、これまでと同じ
+        self.assertNotIn("day 1:", format_stats(stats))
 
 
 if __name__ == "__main__":
