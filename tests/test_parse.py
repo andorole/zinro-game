@@ -628,6 +628,24 @@ class TeamGameTest(unittest.TestCase):
             (2, "噛み", "ダン", "人狼", "フィル"),
         ])  # 投票の行は含まない
 
+    def test_actions_of_other_roles_are_kept_as_other(self):
+        # 猫又などの行(今のログには出ない)も、役職を付けて残る。意味は決めつけない
+        game = {"players": {"ハル": {"role": "猫又"}}, "events": [
+            {"seq": 1, "kind": "command", "action": "実行", "actor": "ハル", "target": "アリス", "phase": "night", "day": 1},
+            {"seq": 2, "kind": "command", "action": "投票", "actor": "ハル", "target": "アリス", "phase": "vote", "day": 1},
+        ]}
+        self.assertEqual([(a["act"], a["role"]) for a in night_actions(game)], [("その他", "猫又")])
+
+    def test_three_wolves_make_one_team(self):
+        game = {"players": {
+            "カレン": {"role": "人狼", "mates": ["ダン", "イブ"]},
+            "ダン": {"role": "人狼", "mates": ["カレン", "イブ"]},
+            "イブ": {"role": "人狼", "mates": ["カレン", "ダン"]},
+            "ボブ": {"role": "村人"},
+        }}
+        self.assertEqual(wolf_teams(game), [["イブ", "カレン", "ダン"]])
+        self.assertEqual(wolf_teams({"players": {"アリス": {"role": "人狼"}}}), [["アリス"]])  # 仲間のいない人狼は単独
+
     def test_deaths_say_when_and_how(self):
         got = [(d["name"], d["phase"], d["day"], d["cause"]) for d in deaths(self.game)]
         self.assertEqual(got, [

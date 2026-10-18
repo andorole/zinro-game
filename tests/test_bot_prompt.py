@@ -1,7 +1,9 @@
 import unittest
 from pathlib import Path
 
-from zinro_bot.prompt import as_text, build_system, moves_text, read_section, select_examples, vocabulary_text
+from zinro_bot.prompt import (
+    GAME_FIELD, as_text, build_system, games_of_other_fields, moves_text, read_section, select_examples, vocabulary_text,
+)
 from zinro_learn.check import load_examples
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -51,6 +53,22 @@ class PromptTest(unittest.TestCase):
         positive = [e for rows in selected["own"].values() for e in rows] + selected["opponent"]
         self.assertFalse([e for e in positive if e.get("outcome") == "avoid"])
         self.assertTrue(all(e["tier"] in (1, 2) for rows in selected["own"].values() for e in rows))
+
+    def test_examples_of_a_game_in_another_field_are_left_out_of_the_prompt(self):
+        # 通常配役(12A猫)のログの発言例は、4A・6A の指示に入れない(場に合わない話が混じる)
+        self.assertEqual(GAME_FIELD.get("log17"), "12a")
+        for ruleset in ("plain", "seer4", "seer6"):
+            self.assertEqual(games_of_other_fields(ruleset), ("log17",))
+        self.assertEqual(games_of_other_fields("12a"), ())
+        avoid = [e for e in self.examples if e["game"] == "log17" and e.get("outcome") == "avoid"]
+        self.assertTrue(avoid)   # 12A猫の「避ける動き」は、あるはず(そうでなければ、このテストは意味がない)
+        for ruleset in ("plain", "seer4", "seer6"):
+            text = as_text(build_system(ROOT, me="ボブ", role="村人", ruleset=ruleset))
+            for e in avoid:
+                self.assertNotIn(" / ".join(e["utterance"].split("\n")), text)
+        # 12A猫の場で使うときは、入る(未実装の場の名前で、選び方だけ確かめる)
+        chosen = select_examples(self.examples, "村人", games_of_other_fields("12a"))
+        self.assertTrue(any(e["game"] == "log17" for e in chosen["avoid"]))
 
     def test_role_preference(self):
         wolf = select_examples(self.examples, "人狼")["own"]["rebut"]

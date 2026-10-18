@@ -11,7 +11,7 @@ from pathlib import Path
 
 from zinro_learn.check import load_examples, parse_table, table_cells
 
-from .rules import PLAIN, SEER_RULESETS, apply_seer
+from .rules import PLAIN, SEER4, SEER6, SEER_RULESETS, apply_seer
 
 CACHE = {"type": "ephemeral"}
 ROLE_UNSET = "（ユーザーが指定する。村人か人狼）"
@@ -186,6 +186,19 @@ def fill(text: str, me: str | None, role: str | None, register: str) -> str:
     return text.replace("{me}", me or ME_UNSET).replace("{role}", role or ROLE_UNSET).replace("{register}", register)
 
 
+# 発言例の、場ごとの範囲。通常配役(12A猫)のログは、役職(霊能・狩人・猫又・狂人・人狼3人)まわりの発言例が多く、
+# 4A・6A の指示に入れると、場に合わない話(偽の占い師の「切り」、霊能の結果など)が混じる。ここにないログは、どの場にも使う。
+# 12A猫の練習部屋を作るときは、その場の名前(ここでは "12a")で使う。
+GAME_FIELD = {"log17": "12a"}
+RULESET_FIELD = {PLAIN: "small", SEER4: "small", SEER6: "small"}
+
+
+def games_of_other_fields(ruleset: str) -> tuple[str, ...]:
+    """この場(ruleset)の指示に入れない発言例のログ。"""
+    field = RULESET_FIELD.get(ruleset, ruleset)
+    return tuple(game for game, f in GAME_FIELD.items() if f != field)
+
+
 def build_system(
     root: Path,
     me: str | None = None,
@@ -223,7 +236,9 @@ def build_system(
         ]
     )
     example_role = "村人" if role == "占い師" else role   # 占い師は村人側。発言例は村人のものを優先する
-    selected = select_examples(load_examples(knowledge / "examples.jsonl"), example_role, exclude_games, extra_moves)
+    selected = select_examples(
+        load_examples(knowledge / "examples.jsonl"), example_role, tuple(exclude_games) + games_of_other_fields(ruleset), extra_moves
+    )
     return [
         {"type": "text", "text": instructions + "\n\n" + reference, "cache_control": CACHE},
         {"type": "text", "text": render_examples(selected), "cache_control": CACHE},
