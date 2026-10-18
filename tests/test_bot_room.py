@@ -150,6 +150,13 @@ class RoomTest(unittest.TestCase):
         self.assertIn("縄は2本", seer)
         self.assertIn("昼1(議論のあと、投票で1人を処刑) → 夜", seer)
 
+    def test_the_6a_instructions_cover_a_black_first_night_result(self):
+        six = embedded(self.html)["seer6"]   # 初日の占いが「ランダム」「占い師が選ぶ」のときは、黒が出ることもある
+        self.assertIn("夜0の結果が黒なら、その人が人狼", six["strong"]["占い師"])
+        self.assertIn("占い師が黒を出したら、黒先が人狼", six["strong"]["村人"])
+        self.assertIn("「占いCO。〇〇黒」", six["casual"]["占い師"])
+        self.assertIn("占い師が黒を出したら、黒先が人狼で、吊る", six["casual"]["村人"])
+
     @unittest.skipUnless(shutil.which("node"), "node がない")
     def test_page_script_parses(self):
         script = re.findall(r"<script>(.*?)</script>", self.html, re.S)[-1]
