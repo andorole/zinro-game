@@ -3,6 +3,7 @@
       ふつうの語句でもある名前(例: ハンドル名が「なるほどね」)は --plain-word 名前 を付ける(複数指定可)。
       logs/private/<id>.players.json の plain_words に入り、check の実名混入の検査から外れる。
   python -m zinro_learn stats logs/normalized/<id>.json [...]
+  python -m zinro_learn timeline logs/normalized/<id>.json [...]   # 役職、夜の行動と通知、死亡、人狼の夜チャットを、夜と昼の順に並べる
   python -m zinro_learn sync     # 発言例から、ガイドの「発言の型」の表を作り直す
   python -m zinro_learn check    # knowledge/ の整合性を調べる(問題があれば終了コード 1)
   python -m zinro_learn structure  # 連投と返信の型(1発言に1返信ではない構造)を数える
@@ -16,6 +17,7 @@ from pathlib import Path
 from .analyze import format_stats, speech_stats
 from .check import check, load_examples, load_games, sync_table
 from .parse import anonymize, build_mapping, parse_game
+from .roles import format_timeline
 from .structure import format_structure
 
 
@@ -71,6 +73,12 @@ def stats(args) -> None:
         print(format_stats(speech_stats(game)) + "\n")
 
 
+def timeline(args) -> None:
+    for path in args.normalized:
+        game = json.loads(Path(path).read_text(encoding="utf-8"))
+        print(format_timeline(game) + "\n")
+
+
 def sync(args) -> None:
     root = Path(args.root)
     path = root / "knowledge/discussion_style.md"
@@ -119,6 +127,10 @@ def main(argv=None) -> None:
     p = sub.add_parser("stats", help="発言の長さなどの統計を表示する")
     p.add_argument("normalized", nargs="+")
     p.set_defaults(func=stats)
+
+    p = sub.add_parser("timeline", help="役職・夜の行動・通知・死亡・人狼の夜チャットを、夜と昼の順に表示する")
+    p.add_argument("normalized", nargs="+")
+    p.set_defaults(func=timeline)
 
     p = sub.add_parser("sync", help="発言例から、ガイドの「発言の型」の表を作り直す")
     p.add_argument("--root", default=".")

@@ -2,7 +2,10 @@
 
 ログは新しい発言が上に来る。1発言は複数行になることがあり、2行目以降には
 「名前:」が付かない。発言者名は役職通知(鯖→名前: あなたは【役職】です)から集める。
+人狼の役職通知には「　仲間は【名前,名前】です」が続くことがある(人狼が2人以上のとき)。
+これも役職通知として読み、仲間の名前を players の mates に持つ。
 名前にコロンを含む人(例: 「RE：〇〇」)も、役職通知から集めた名前として照合する。
+人狼の夜チャット(「名前→人狼: …」)は、発言ではなく wolfchat として分ける。
 勝利の通知より後の発言は、ゲーム後の雑談(after)として分ける。
 """
 from __future__ import annotations
@@ -13,8 +16,11 @@ from dataclasses import dataclass
 
 SEP = r"[:：]\s?"
 COLON = re.compile(r"[:：]")
-ROLE_NOTICE = re.compile(rf"^鯖→(?P<name>.+?){SEP}あなたは【(?P<role>[^】]+)】です$")
-ROLE_TEXT = re.compile(r"^あなたは【(?P<role>[^】]+)】です$")
+# 人狼の役職通知の末尾。「あなたは【人狼】です　仲間は【アリス,カレン】です」(区切りは全角空白)
+MATES_TAIL = r"(?:\s*仲間は【(?P<mates>[^】]*)】です)?"
+ROLE_NOTICE = re.compile(rf"^鯖→(?P<name>.+?){SEP}あなたは【(?P<role>[^】]+)】です{MATES_TAIL}$")
+ROLE_TEXT = re.compile(rf"^あなたは【(?P<role>[^】]+)】です{MATES_TAIL}$")
+MATE_SEPARATOR = re.compile(r"[,，、]")
 SYSTEM = re.compile(rf"^鯖{SEP}(?P<text>.*)$")
 COMMAND_BODY = re.compile(r"^(?P<action>[^@]+)@(?P<actor>[^→]+)→(?P<target>.+)$")
 VOTE_LINE = re.compile(r"^(?P<player>.+?)\((?P<received>\d+)票\)の投票先→(?P<voted_for>.+)$")
@@ -24,18 +30,19 @@ SETUP = re.compile(r"^役職設定【(?P<setup>.+)】$")
 WINNER = re.compile(r"【(?P<team>[^】]+)】の勝利です")
 EXTENSION = re.compile(r"時間を(?P<seconds>\d+)秒延長しました")
 DUMMY = "初日犠牲者"
+WOLF_CHAT = "人狼"  # 「名前→人狼: …」の宛先。鯖→人狼 は噛みの通知、人狼→GM は噛みの操作
 
 
 @dataclass
 class Message:
-    kind: str  # system / private / command / speech / spirit / self / directed
+    kind: str  # system / private / command / speech / spirit / self / wolfchat / directed
     text: str
     speaker: str | None = None
     to: str | None = None
 
 
 def directed(src: str, dst: str, text: str) -> Message:
-    """「送り手→宛先: 本文」の行。宛先で種類が決まる(霊界は死者・観戦者のチャット)。"""
+    """「送り手→宛先: 本文」の行。宛先で種類が決まる(霊界は死者・観戦者のチャット、人狼は夜の人狼チャット)。"""
     if src == "鯖":
         return Message("private", text, to=dst)
     if dst == "GM":
@@ -44,6 +51,8 @@ def directed(src: str, dst: str, text: str) -> Message:
         return Message("spirit", text, speaker=src)
     if dst == src:
         return Message("self", text, speaker=src)
+    if dst == WOLF_CHAT:
+        return Message("wolfchat", text, speaker=src, to=dst)
     return Message("directed", text, speaker=src, to=dst)
 
 
@@ -64,6 +73,20 @@ def collect_roles(lines: list[str]) -> dict[str, str]:
         if m := ROLE_NOTICE.match(line):
             roles[m["name"]] = m["role"]
     return roles
+
+
+def split_mates(text: str | None) -> list[str]:
+    """役職通知の「仲間は【A,B】です」の名前の列。仲間のいない通知(None や空)は空のリスト。"""
+    return [name.strip() for name in MATE_SEPARATOR.split(text or "") if name.strip()]
+
+
+def collect_mates(lines: list[str]) -> dict[str, list[str]]:
+    """役職通知に「仲間は【…】です」がある人の、仲間(自分以外の人狼)の名前。"""
+    mates = {}
+    for line in lines:
+        if (m := ROLE_NOTICE.match(line)) and (names := split_mates(m["mates"])):
+            mates[m["name"]] = names
+    return mates
 
 
 def split_messages(lines: list[str], names: set[str]) -> list[Message]:
@@ -159,6 +182,8 @@ def annotate(messages: list[Message]) -> list[dict]:
             event.update(body.groupdict())
         elif m.kind == "private" and (role := ROLE_TEXT.match(m.text)):
             event["role"] = role["role"]
+            if mates := split_mates(role["mates"]):
+                event["mates"] = mates
         elif m.kind == "system":
             event.update(system_fields(m.text))
         events.append(event)
@@ -184,6 +209,7 @@ def parse_game(text: str, game_id: str, order: str = "auto") -> dict:
     """order は auto / newest-first / oldest-first。"""
     lines = [line.rstrip("\r") for line in text.splitlines() if line.strip()]
     roles = collect_roles(lines)
+    mates = collect_mates(lines)
     messages = split_messages(lines, set(roles))
     newest_first = {"newest-first": True, "oldest-first": False}.get(order)
     if newest_first is None:
@@ -199,7 +225,11 @@ def parse_game(text: str, game_id: str, order: str = "auto") -> dict:
         "winner": find_in_system(events, WINNER, "team"),
         "extension_seconds": extension_seconds(events),
         "players": {
-            name: {"role": role, **({"dummy": True} if name == DUMMY else {})}
+            name: {
+                "role": role,
+                **({"dummy": True} if name == DUMMY else {}),
+                **({"mates": mates[name]} if name in mates else {}),
+            }
             for name, role in roles.items()
         },
         "events": events,
@@ -264,11 +294,16 @@ def anonymize(game: dict, mapping: dict[str, str], aliases: dict[str, str] | Non
             if e.get(key):
                 e[key] = label(e[key])
         e["text"] = scrub(e["text"])
+        if "mates" in e:
+            e["mates"] = [label(n) for n in e["mates"]]
         if "votes" in e:
             e["votes"] = [
                 {**v, "player": label(v["player"]), "voted_for": label(v["voted_for"])}
                 for v in e["votes"]
             ]
         events.append(e)
-    players = {label(name): info for name, info in game["players"].items()}
+    players = {
+        label(name): {**info, "mates": [label(n) for n in info["mates"]]} if "mates" in info else info
+        for name, info in game["players"].items()
+    }
     return {**game, "players": players, "events": events}
