@@ -521,5 +521,180 @@ class SeerGameTest(unittest.TestCase):
         self.assertNotIn("day 1:", format_stats(stats))
 
 
+class RoleNoticeTest(unittest.TestCase):
+    """人狼の役職通知に続く「仲間は【…】です」と、「→」の行の種類。"""
+
+    WOLF_LINE = "鯖→カレン: あなたは【人狼】です　仲間は【ダン,イブ】です"
+
+    def test_wolf_notice_with_mates_is_a_role_notice(self):
+        m = ROLE_NOTICE.match(self.WOLF_LINE)
+        self.assertEqual((m["name"], m["role"]), ("カレン", "人狼"))
+        self.assertEqual(split_mates(m["mates"]), ["ダン", "イブ"])
+        self.assertEqual(
+            collect_mates([self.WOLF_LINE, "鯖→アリス: あなたは【村人】です"]), {"カレン": ["ダン", "イブ"]}
+        )
+
+    def test_notice_without_mates_is_read_as_before(self):
+        m = ROLE_NOTICE.match("鯖→アリス: あなたは【村人】です")
+        self.assertEqual((m["name"], m["role"], m["mates"]), ("アリス", "村人", None))
+        self.assertEqual(split_mates(None), [])
+        self.assertEqual(split_mates("ダン、イブ"), ["ダン", "イブ"])  # 区切りが読点でも
+
+    def test_other_sentences_are_not_role_notices(self):
+        self.assertIsNone(ROLE_NOTICE.match("鯖→カレン: あなたは【人狼】です。仲間は誰もいません"))
+
+    def test_kind_of_arrow_lines(self):
+        self.assertEqual(directed("アリス", "人狼", "x").kind, "wolfchat")  # 人狼の夜チャット
+        self.assertEqual(directed("アリス", "ボブ", "x").kind, "directed")
+        self.assertEqual(directed("鯖", "人狼", "x").kind, "private")  # 噛みの通知
+        self.assertEqual(directed("人狼", "GM", "x").kind, "command")  # 噛みの操作
+
+
+class TeamGameTest(unittest.TestCase):
+    """人狼が2人いる8人村。人狼の仲間の通知、夜のチャット、3日分の昼、占い・霊能・護衛・噛みを読む。"""
+
+    def setUp(self):
+        self.game = parse_game(TEAM, game_id="team")
+        self.events = self.game["events"]
+
+    def test_wolf_notices_give_each_wolf_its_mate(self):
+        self.assertEqual(self.game["players"]["カレン"], {"role": "人狼", "mates": ["ダン"]})
+        self.assertEqual(self.game["players"]["ダン"], {"role": "人狼", "mates": ["カレン"]})
+        self.assertNotIn("mates", self.game["players"]["アリス"])
+        self.assertEqual(wolf_teams(self.game), [["カレン", "ダン"]])
+
+    def test_role_notice_event_keeps_the_mates_and_every_wolf_speaks(self):
+        notice = next(e for e in self.events if e["kind"] == "private" and e["to"] == "カレン" and "role" in e)
+        self.assertEqual((notice["role"], notice["mates"]), ("人狼", ["ダン"]))
+        # 人狼の役職通知を読めているので、人狼の発言も取りこぼさない(前の発言の続きの行にならない)
+        speakers = {e["speaker"] for e in self.events if e["kind"] == "speech"}
+        self.assertEqual(speakers, {"アリス", "ダン", "ボブ", "エマ", "カレン", "ミラ"})
+
+    def test_wolf_chat_is_kept_apart_from_speech(self):
+        chat = [e for e in self.events if e["kind"] == "wolfchat"]
+        where = [(e["speaker"], e["to"], e["phase"], e["day"]) for e in chat]
+        self.assertEqual(
+            where,
+            [("カレン", "人狼", "night", 0), ("ダン", "人狼", "night", 0), ("ダン", "人狼", "night", 1), ("ダン", "人狼", "night", 2)],
+        )
+        self.assertEqual(chat[1]["text"], "了解\nカレンさんの黒が出たらどうする？")
+        self.assertEqual(len([e for e in self.events if e["kind"] == "speech"]), 11)
+        stats = speech_stats(anonymize(self.game, build_mapping(self.game)))
+        self.assertEqual(stats["speech_messages"], 11)  # 夜チャットは発言として数えない
+
+    def test_wolf_chat_is_counted_by_night_and_speaker(self):
+        first = len("占いを騙るのはダンにしよう")
+        second = len("了解カレンさんの黒が出たらどうする？")
+        summary = wolfchat_summary(self.game)
+        self.assertEqual((summary["messages"], summary["chars"]), (4, first + second + len("ひとりになった") + len("あと少し")))
+        night0 = summary["nights"][0]
+        self.assertEqual((night0["messages"], night0["chars"]), (2, first + second))
+        self.assertEqual(night0["speakers"], {"カレン": {"messages": 1, "chars": first}, "ダン": {"messages": 1, "chars": second}})
+        self.assertEqual(sorted(summary["nights"]), [0, 1, 2])
+
+    def test_older_files_keep_wolf_chat_as_directed(self):
+        # wolfchat の種類ができる前に取り込んだログは、同じ行を directed(宛先は人狼)で持つ
+        old = {"events": [
+            {"kind": "directed", "to": "人狼", "speaker": "A", "day": 0, "text": "あ"},
+            {"kind": "directed", "to": "B", "speaker": "A", "day": 0, "text": "x"},
+        ]}
+        self.assertEqual([is_wolfchat(e) for e in old["events"]], [True, False])
+        self.assertEqual(wolfchat_summary(old)["messages"], 1)
+
+    def test_notices_are_read_as_structure(self):
+        got = [(n["kind"], n["to"], n["target"], n["wolf"], n["phase"], n["day"]) for n in notices(self.game)]
+        self.assertEqual(got, [
+            ("占い", "ボブ", "カレン", True, "night", 0),
+            ("噛み", "人狼", "初日犠牲者", None, "night", 0),
+            ("霊能", "エマ", "カレン", True, "vote", 1),
+            ("占い", "ボブ", "アリス", False, "night", 1),
+            ("噛み", "人狼", "ボブ", None, "night", 1),
+            ("霊能", "エマ", "ミラ", False, "vote", 2),
+            ("噛み", "人狼", "フィル", None, "night", 2),
+            ("霊能", "エマ", "ダン", True, "vote", 3),
+        ])
+
+    def test_night_actions_are_named_by_the_role_of_the_actor(self):
+        got = [(a["day"], a["act"], a["actor"], a["role"], a["target"]) for a in night_actions(self.game)]
+        self.assertEqual(got, [
+            (0, "ダミー", "初日犠牲者", "村人", "ミラ"),
+            (0, "護衛", "フィル", "狩人", "ボブ"),
+            (0, "占い", "ボブ", "占い師", "カレン"),
+            (0, "噛み", "カレン", "人狼", "初日犠牲者"),
+            (1, "護衛", "フィル", "狩人", "エマ"),
+            (1, "占い", "ボブ", "占い師", "アリス"),
+            (1, "噛み", "ダン", "人狼", "ボブ"),
+            (2, "護衛", "フィル", "狩人", "エマ"),
+            (2, "噛み", "ダン", "人狼", "フィル"),
+        ])  # 投票の行は含まない
+
+    def test_deaths_say_when_and_how(self):
+        got = [(d["name"], d["phase"], d["day"], d["cause"]) for d in deaths(self.game)]
+        self.assertEqual(got, [
+            ("初日犠牲者", "night", 0, "襲撃"), ("カレン", "vote", 1, "処刑"), ("ボブ", "night", 1, "襲撃"),
+            ("ミラ", "vote", 2, "処刑"), ("フィル", "night", 2, "襲撃"), ("ダン", "vote", 3, "処刑"),
+        ])
+
+    def test_alive_when_each_day_starts(self):
+        rows = alive_by_day(self.game)
+        self.assertEqual([r["day"] for r in rows], [1, 2, 3])
+        self.assertEqual(sorted(rows[0]["alive"]), sorted(["アリス", "ボブ", "カレン", "ダン", "エマ", "フィル", "ミラ"]))
+        self.assertEqual(sorted(rows[1]["alive"]), sorted(["アリス", "ダン", "エマ", "フィル", "ミラ"]))
+        self.assertEqual(sorted(rows[2]["alive"]), sorted(["アリス", "ダン", "エマ"]))
+        self.assertEqual(rows[2]["dead"], ["初日犠牲者", "カレン", "ボブ", "ミラ", "フィル"])
+
+    def test_timeline_lists_nights_and_days_in_order(self):
+        text = format_timeline(self.game)
+        order = [text.index(label) for label in ("夜0:", "昼1:", "夜1:", "昼2:", "夜2:", "昼3:")]
+        self.assertEqual(order, sorted(order))
+        for line in (
+            "人狼のまとまり: カレン ダン", "占い: ボブ(占い師) → カレン", "通知(占い): ボブ に「カレン は人狼」",
+            "人狼チャット: 2 件", "処刑: カレン (5票)", "通知(霊能): エマ に「ミラ は人狼ではない」", "死亡: フィル (襲撃)",
+        ):
+            self.assertIn(line, text)
+
+    def test_three_days_of_discussion_are_broken_down_by_day(self):
+        self.assertEqual(discussion_days(self.game), 3)
+        self.assertEqual(extension_by_day(self.game), {1: 180, 3: 90})
+        stats = speech_stats(anonymize(self.game, build_mapping(self.game)))
+        rows = stats["days"]
+        self.assertEqual([(r["day"], r["messages"]) for r in rows], [(1, 6), (2, 3), (3, 2)])
+        self.assertEqual([r["extension_seconds"] for r in rows], [180, 0, 90])
+        self.assertTrue(all("seconds" not in r for r in rows))  # 議論時間を指定しないときは、字/分を出さない
+        self.assertEqual(sum(r["chars"] for r in rows), stats["chars_total"])
+        self.assertEqual(sum(sum(s["messages"] for s in r["speakers"].values()) for r in rows), 11)
+        report = format_stats(stats)
+        for line in ("day 1: 発言 6 件", "day 2: 発言 3 件", "day 3: 発言 2 件"):
+            self.assertIn(line, report)
+        self.assertNotIn("字/分", report)
+
+    def test_three_days_with_discussion_seconds(self):
+        self.game["discussion_seconds"] = 300
+        stats = speech_stats(anonymize(self.game, build_mapping(self.game)))
+        self.assertEqual([r["seconds"] for r in stats["days"]], [480, 300, 390])  # 300 + 延長(180、0、90)
+        self.assertEqual(stats["minutes"], 19.5)  # (300秒 × 3日 + 延長270秒) / 60
+
+    def test_mates_are_anonymized_everywhere(self):
+        anonymized = anonymize(self.game, build_mapping(self.game, {"カレン": "C", "ダン": "D"}))
+        self.assertEqual(anonymized["players"]["C"], {"role": "人狼", "mates": ["D"]})
+        notice = next(e for e in anonymized["events"] if e["kind"] == "private" and e["to"] == "C" and "role" in e)
+        self.assertEqual(notice["mates"], ["D"])
+        self.assertEqual(notice["text"], "あなたは【人狼】です　仲間は【《D》】です")
+        chat = [e for e in anonymized["events"] if e["kind"] == "wolfchat"]
+        self.assertEqual(chat[0]["text"], "占いを騙るのは《D》にしよう")
+        self.assertEqual({e["speaker"] for e in chat}, {"C", "D"})
+        dumped = json.dumps(anonymized, ensure_ascii=False)
+        for name in ("アリス", "ボブ", "カレン", "ダン", "エマ", "フィル", "ミラ", "ユキ"):
+            self.assertNotIn(name, dumped)
+
+    def test_structure_reads_the_anonymized_log_too(self):
+        anonymized = anonymize(self.game, build_mapping(self.game, {"カレン": "C", "ダン": "D", "ボブ": "E"}))
+        first = notices(anonymized)[0]  # 本文は「《C》さんは人狼です」だが、対象は C として読む
+        self.assertEqual((first["kind"], first["to"], first["target"], first["wolf"]), ("占い", "E", "C", True))
+        self.assertEqual((plain("《C》"), plain("初日犠牲者")), ("C", "初日犠牲者"))
+        self.assertEqual(wolf_teams(anonymized), [["C", "D"]])
+        self.assertEqual([(d["name"], d["cause"]) for d in deaths(anonymized)][:2], [("初日犠牲者", "襲撃"), ("C", "処刑")])
+
+
 if __name__ == "__main__":
     unittest.main()
