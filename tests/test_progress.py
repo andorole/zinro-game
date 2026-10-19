@@ -3,7 +3,7 @@ import unittest
 
 from zinro_learn.board import Board, ROLES_12A_NEKO
 from zinro_learn.progress import (
-    BITES, GUARDS, POLICIES, compare, compare_text, hit_rates, play, prepare, sample_world, win_rate,
+    BITES, GUARDS, POLICIES, compare, compare_text, hit_rates, night_result, play, prepare, sample_world, win_rate,
 )
 
 
@@ -73,12 +73,12 @@ class EngineTest(unittest.TestCase):
     def test_the_medium_reports_the_hanged_color_next_morning_only_if_alive(self):
         prep, roles = self._small()
         trace: list = []
-        self.assertTrue(play(prep, roles, "roll_stop", "grey", random.Random(2), trace))
+        self.assertTrue(play(prep, roles, "roll_stop", "grey", random.Random(2), trace, seer_results=False))
         self.assertEqual([t[0] for t in trace], ["hang", "bite", "report", "hang"])
         self.assertEqual(trace[2], ("report", "A", "白"))                 # 白が1つ出て、残る1人(B)は人狼と決まる
         self.assertEqual(trace[3][:2], ("hang", "B"))
         trace = []
-        play(prep, roles, "roll_stop", "claim", random.Random(2), trace)  # 名乗りを噛む: 霊能 C が噛まれて、結果が出ない
+        play(prep, roles, "roll_stop", "claim", random.Random(2), trace, seer_results=False)  # 名乗りを噛む: 霊能 C が噛まれて、結果が出ない
         self.assertEqual(trace[1][:2], ("bite", "C"))
         self.assertNotIn("report", [t[0] for t in trace])
 
@@ -107,6 +107,74 @@ class EngineTest(unittest.TestCase):
         trace = []
         play(prep, roles, "grey", "claim", FirstRng(), trace, guard="medium")
         self.assertEqual(trace[1], ("bite", "C", ""))
+
+
+class SeerNightTest(unittest.TestCase):
+    """占いの2日目以降の結果(夜に占い、翌朝に出す。村は、本物と見る占いの結果だけを信じる)。"""
+
+    def _one_seer(self, wolf: str):
+        board = Board(players=list("ABCDEF"), roles={"人狼": 1, "占い師": 1, "村人": 4}, rco=True)
+        board.claims = [("A", "占い師")]
+        prep = prepare(board)
+        roles = {"A": "占い師", **{p: "村人" for p in "BCDEF"}}
+        roles[wolf] = "人狼"
+        return prep, roles
+
+    def test_the_trusted_seers_black_is_hanged_the_next_day(self):
+        prep, roles = self._one_seer("D")
+        trace: list = []
+        won = play(prep, roles, "grey", "grey", FirstRng(), trace)
+        self.assertTrue(won)
+        self.assertEqual(trace, [("hang", "B", "人間"), ("bite", "C", ""), ("result", "A", "D黒"), ("hang", "D", "人狼")])
+
+    def test_a_seer_bitten_in_the_night_cannot_report(self):
+        prep, roles = self._one_seer("F")
+        trace: list = []
+        play(prep, roles, "grey", "claim", FirstRng(), trace)               # 名乗りを噛む: 占い A が噛まれる
+        self.assertEqual(trace[:2], [("hang", "B", "人間"), ("bite", "A", "")])
+        self.assertNotIn("result", [t[0] for t in trace])
+        trace = []
+        play(prep, roles, "grey", "grey", FirstRng(), trace)                # 灰を噛む: A は生きて、白を出す
+        self.assertEqual(trace[2], ("result", "A", "D白"))
+
+    def test_a_white_given_by_the_trusted_seer_takes_that_grey_out_of_the_random_hang(self):
+        prep, roles = self._one_seer("F")
+        trace: list = []
+        play(prep, roles, "grey", "grey", FirstRng(), trace)
+        hangs = [t[1] for t in trace if t[0] == "hang"]
+        self.assertEqual(hangs[:2], ["B", "E"])                             # D は白を貰ったので、次の吊りは先頭の D でなく E
+
+    def test_a_fake_seer_that_the_village_trusts_leads_it_astray(self):
+        board = Board(players=list("ABCDEF"), roles={"人狼": 1, "占い師": 1, "村人": 4}, rco=True)
+        board.claims = [("A", "占い師"), ("B", "占い師")]
+        prep = prepare(board)
+        prep.wolf_prob.update({"A": 0.0, "B": 1.0})                         # 村は A を本物と見る(実際は A が人狼で、B が本物)
+        roles = {"A": "人狼", "B": "占い師", "C": "村人", "D": "村人", "E": "村人", "F": "村人"}
+        trace: list = []
+        play(prep, roles, "grey", "grey", FirstRng(), trace)
+        self.assertEqual([t[:2] for t in trace[:5]], [("hang", "C"), ("bite", "D"), ("result", "A"), ("result", "B"), ("hang", "E")])
+        self.assertEqual(trace[2], ("result", "A", "E黒"))                  # 偽の人狼は、人狼でない E に黒(FirstRng は、いつも黒を出す側に倒れる)
+        self.assertEqual(trace[3], ("result", "B", "E白"))                  # 本物の白は、信じられない
+        self.assertEqual(trace[4], ("hang", "E", "人間"))                   # 村は、偽の黒に従って、人間を吊る
+
+    def test_using_the_real_seers_nights_raises_the_win_rate(self):
+        board = Board(players=list("ABCDEF"), roles={"人狼": 1, "占い師": 1, "村人": 4}, rco=True)
+        board.claims = [("A", "占い師")]
+        with_nights = win_rate(board, "grey", "grey", n=20000, seed=2)["rate"]
+        without = win_rate(board, "grey", "grey", n=20000, seed=2, seer_results=False)["rate"]
+        self.assertGreater(with_nights, without + 0.15)
+
+    def test_the_night_result_colors_by_role(self):
+        rng = FirstRng()                                                    # random() は 0.0: 黒を出す側
+        self.assertEqual(night_result("占い師", "人狼", rng), "黒")
+        self.assertEqual(night_result("占い師", "村人", rng), "白")
+        self.assertEqual(night_result("人狼", "人狼", rng), "白")            # 仲間は白で守る
+        self.assertEqual(night_result("人狼", "村人", rng), "黒")
+        self.assertEqual(night_result("狂人", "人狼", rng), "黒")            # 狂人は、相手を知らない
+        class NeverBlack(FirstRng):
+            def random(self):
+                return 0.99
+        self.assertEqual(night_result("人狼", "村人", NeverBlack()), "白")
 
 
 class ComparisonTest(unittest.TestCase):
