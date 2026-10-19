@@ -4,11 +4,13 @@
 - 入力は、名乗り(CO)・占い/霊能の結果・処刑・夜の死亡・狼CO(公開されたものだけ)。実際の役職は使わない。
 - 出力は、その情報に合う世界の一覧(名乗りの「真・狼・狂」の組み合わせ)、定番かどうかの段階、確定した黒・白、
   縄の数(外せる吊りの回数)。
-- 「定番」の段階は、依頼者に聞いた環境(現在の12A猫: 占い2・霊能1なら、占いは真と狼、霊は真が定番。霊はたいてい真)を、
-  規則にしたもの(world_tier)。実戦の比率ではなく、「定番／ありうる／まれ」の目安。重みの数字は仮。
+- 「定番」の段階は、依頼者に聞いた環境(現在の12A猫: 占い2・霊能1なら、占いは真と狼、霊は真が定番。占い3・霊能1なら、
+  真狂狼が多く、真狼狼もありうる。霊はたいてい真)を、規則にしたもの(world_judgement)。実戦の比率ではなく、
+  「定番／ありうる／まれ」の目安。重みの数字は仮。
 - 結果の出し方の癖も、環境の話から入れた(result_factor)。初手に偽の占いが、人狼でない人へ黒を出すのは「人外の凸」で、
-  最良手ではないので少ない。だから、初手の黒(対抗黒・グレーへの黒)は、真目になる。初手の対抗白は、2-1の定番(真狼)では
-  本物が出せない(相手が人狼なら黒になる)ので、出したのは人狼の見込みが高い。数字は仮で、依頼者に確かめる。
+  最良手ではないので少ない。だから、初手の黒(対抗黒・グレーへの黒)は、真目になる(3-1 の対抗黒は、結構真目)。初手の対抗白は、本物が出せる相手が
+  狂人だけ(相手が人狼なら黒になる)なので、出した側は偽目。いちばん有利な真狂狼でも、8割は偽(11A のメモの数え方と同じ)。
+  数字は仮で、依頼者に確かめる。
 
 世界の数え方: 名乗った人・結果の対象・死者・狼COの人(主要な人)の役職を、役職の人数の範囲で総当たりし、
 結果の真偽の条件(本物の占い師・霊能者の結果は正しい)を満たすものを残す。ほかの人(灰)は、残った役職を
@@ -30,7 +32,10 @@ TIER_NAME = {3: "定番", 2: "ありうる", 1: "まれ"}
 # 仮の重み(世界1通りあたり)。「定番」を数にしただけで、実戦の比率ではない。まれは、潜伏した本物の位置など、配り方の数が
 # 多くなるので、1通りの重みを小さくした(2-1 の昼1で、霊が本物の見込みが 9割台になる目安。依頼者の話「霊はだいたい真」)。
 TIER_WEIGHT = {3: 1.0, 2: 0.2, 1: 0.005}
-FAKE_BLACK_FIRST = 0.2                                   # 仮。偽の占いが、初手に「人狼でない人」へ黒を出す割合(白を出す割合は 1 - これ)
+# 仮。偽の占いが、初手に「人狼でない人」へ黒を出す重み(白を出す場合を 1 としたときの比)。依頼者の話は「初手の黒は真目」
+# →「3-1 の対抗黒は結構真目で、狩人が黒を出した占いの護衛を固定するまである。初手黒がとにかく真目多い環境」と強まったので、
+# 0.2 から 0.1 に下げた(3-1 の対抗黒で、黒を出した側が本物の見込みが 7割台)。
+FAKE_BLACK_FIRST = 0.1
 TYPE_ORDER = "真狼狂"                                    # 名乗りの種類: 本物・人狼・狂人
 
 
@@ -106,6 +111,7 @@ def truthful(board: Board, assign: dict, result: dict) -> bool:
 
 REASON_NO_REAL = {"占い師": "占いに本物がいない(潜伏)", "霊能者": "霊に本物がいない(霊の偽)"}
 REASON_MAD = "狂人が偽に出る"
+REASON_NO_MAD = "偽が人狼だけ(狂人が偽に出ない)"
 REASON_CUT = "偽の黒が人狼に当たる(切り・偶然)"
 
 
@@ -114,7 +120,9 @@ def world_judgement(board: Board, assign: dict) -> tuple[int, tuple[str, ...]]:
 
     - 占い・霊能とも、名乗った人の中に本物がいるのが定番。本物が名乗っていない(潜伏)のは、まれ。
       (占い2・霊能1なら、占いは真と狼、霊は真が定番。霊はたいてい真なので、霊の偽は、名乗りに本物がいないこととして、まれ)
-    - 偽の名乗りは、人狼が定番。狂人が偽に出るのは、ありうる。
+    - 偽が1人なら、人狼が定番。狂人が偽に出るのは、ありうる。
+    - 偽が2人以上なら、狂人が1人まじるのが定番(占い3・霊能1なら真狂狼)。人狼だけ(真狼狼)は、ありうる。
+      偽が3人以上のときも同じ形と読んだ(推測。依頼者が言ったのは、占い3・霊能1だけ)。
     - 偽の結果が、人狼に黒を当てる(狼が仲間に黒を出す「切り」、狂人の偶然)のは、まれ。
     """
     tier, reasons = 3, []
@@ -125,9 +133,14 @@ def world_judgement(board: Board, assign: dict) -> tuple[int, tuple[str, ...]]:
         if not any(assign[p] == role for p in claimants):
             tier = min(tier, 1)
             reasons.append(REASON_NO_REAL[role])
-        if any(assign[p] == "狂人" for p in claimants):
+        fakes = [p for p in claimants if assign[p] != role]
+        mad = any(assign[p] == "狂人" for p in fakes)
+        if len(fakes) == 1 and mad:
             tier = min(tier, 2)
             reasons.append(REASON_MAD)
+        elif len(fakes) >= 2 and not mad:
+            tier = min(tier, 2)
+            reasons.append(REASON_NO_MAD)
     for r in board.results:
         p, t = r["player"], r["target"]
         fake = assign[p] in ("人狼", "狂人") and assign[p] != ROLE_OF_KIND[r["kind"]]
@@ -143,8 +156,9 @@ def world_tier(board: Board, assign: dict) -> int:
 
 def result_factor(board: Board, assign: dict, fake_black_first: float = FAKE_BLACK_FIRST) -> float:
     """結果の出し方の癖(環境の話)。偽の占い(人狼・狂人)が、初手に出した結果にだけかける。
-    - 人狼でない人へ黒を出す(人外の凸): fake_black_first。最良手ではないので、少ない。
-    - 白を出す: 1 - fake_black_first。
+    - 人狼でない人へ黒を出す(人外の凸): fake_black_first。最良手ではないので、白を出す場合より少ない。
+    - 白を出す: かけない(1)。偽の対抗白は、本物が出せる相手(狂人)の数え方と同じ重みで数える。
+      いちばん有利な真狂狼でも、対抗白を出した側が本物なのは2割(11A のメモ)。
     本物の結果は、真偽の条件(truthful)で決まるので、かけない。人狼への黒(切り・偶然)は、段階(まれ)で扱う。
     二手目以降と、霊能の結果は、癖を聞いていないので、かけない。"""
     factor = 1.0
@@ -153,9 +167,7 @@ def result_factor(board: Board, assign: dict, fake_black_first: float = FAKE_BLA
             continue
         if assign[r["player"]] not in ("人狼", "狂人"):
             continue
-        if r["color"] == "白":
-            factor *= 1 - fake_black_first
-        elif assign[r["target"]] != "人狼":
+        if r["color"] == "黒" and assign[r["target"]] != "人狼":
             factor *= fake_black_first
     return factor
 

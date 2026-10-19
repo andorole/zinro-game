@@ -108,6 +108,30 @@ class TierTest(unittest.TestCase):
         self.assertIn("真狼-狼", by_tier[1])
         self.assertIn("2-1: 定番: 真狼-真 | ありうる: 真狂-真 | まれ:", patterns_text())
 
+    def test_three_seers_and_one_medium_the_common_case_has_a_madman_and_two_wolves_are_possible(self):
+        """依頼者の話: 3-1 は、12A猫でも真狂狼がまだ多い。真狼狼もありうる。"""
+        rows = claim_patterns(3, 1)
+        by_tier = {t: sorted({r["label"] for r in rows if r["tier"] == t}) for t in (3, 2, 1)}
+        self.assertEqual(by_tier[3], ["真狼狂-真"])
+        self.assertEqual(by_tier[2], ["真狼狼-真"])
+        weight: dict[str, float] = {}
+        for r in rows:
+            weight[r["label"]] = weight.get(r["label"], 0.0) + r["weight"]
+        self.assertGreater(weight["真狼狂-真"], 3 * weight["真狼狼-真"])            # 真狂狼が多い
+        self.assertGreater(weight["真狼狼-真"], 0)                                  # 真狼狼もありうる
+        reasons = {r["label"]: r["reasons"] for r in rows if r["tier"] == 2}
+        self.assertEqual(reasons["真狼狼-真"], ("偽が人狼だけ(狂人が偽に出ない)",))
+        self.assertIn("3-1: 定番: 真狼狂-真 | ありうる: 真狼狼-真 | まれ:", patterns_text())
+
+    def test_with_one_fake_the_madman_is_possible_and_with_two_or_more_he_is_expected(self):
+        board = Board(players=list("ABCDEFGHIJK"), roles=dict(ROLES_12A_NEKO))
+        board.claims = [("A", "占い師"), ("B", "占い師"), ("K", "霊能者")]
+        self.assertEqual(world_judgement(board, {"A": "占い師", "B": "人狼", "K": "霊能者"}), (3, ()))
+        self.assertEqual(world_judgement(board, {"A": "占い師", "B": "狂人", "K": "霊能者"})[0], 2)
+        board.claims.append(("C", "占い師"))
+        self.assertEqual(world_judgement(board, {"A": "占い師", "B": "人狼", "C": "狂人", "K": "霊能者"}), (3, ()))
+        self.assertEqual(world_judgement(board, {"A": "占い師", "B": "人狼", "C": "人狼", "K": "霊能者"})[0], 2)
+
     def test_a_lone_medium_is_real_in_the_standard_case(self):
         rows = claim_patterns(0, 1)
         self.assertEqual(sorted({r["label"] for r in rows if r["tier"] == 3}), ["なし-真"])
@@ -170,13 +194,38 @@ class EnvironmentTreatmentTest(unittest.TestCase):
             # 偽が初手に黒を出す割合が高いほど、真目は薄れる(人外の凸が最良手でない、という話が効いている)
             self.assertLess(shares_of(board, fake_black_first=0.5)["A"]["真"], first, target)
 
+    def test_a_counter_black_in_3_1_is_quite_real_and_a_first_move_black_leans_real_everywhere(self):
+        """依頼者の話: 3-1 の対抗黒は結構真目(狩人が、霊護衛でなく黒を出した占いの護衛を固定するまである)。初手黒がとにかく真目多い環境。"""
+        board = self.neko("ABC", [{"player": "A", "target": "B", "color": "黒"}])
+        shares = shares_of(board)
+        self.assertGreater(shares["A"]["真"], 0.7)
+        self.assertGreater(shares["A"]["真"], shares["K"]["真"] - 0.3)                 # 黒を出した占いは、霊(ほぼ本物)に近い見込みまで来る
+        self.assertGreater(shares["A"]["真"], 3 * shares["B"]["真"] - 0.01)            # 黒を出された側は、本物であることが少ない
+        for seers, target in (("AB", "B"), ("AB", "E"), ("ABC", "B")):                  # 2-1 の対抗黒・グレーへの黒と、3-1 の対抗黒
+            b = self.neko(seers, [{"player": "A", "target": target, "color": "黒"}])
+            self.assertGreater(shares_of(b)["A"]["真"], 0.5, (seers, target))
+        for seers in ("AB", "ABC", "ABCD"):                                               # 名乗りが増えても、初手の黒は真目の方へ動く
+            for target in ("B", "E"):
+                first = self.neko(seers, [{"player": "A", "target": target, "color": "黒"}])
+                later = self.neko(seers, [{"player": "A", "target": target, "color": "黒"}])
+                later.results[0]["first"] = False
+                self.assertGreater(shares_of(first)["A"]["真"], shares_of(later)["A"]["真"] + 0.1, (seers, target))
+
     def test_a_first_move_white_on_grey_does_not_lean_either_way(self):
         board = self.neko("AB", [{"player": "A", "target": "D", "color": "白"}])
         self.assertAlmostEqual(shares_of(board)["A"]["真"], 0.5, delta=0.15)
 
-    def test_a_counter_white_in_3_1_is_about_eighty_percent_fake_or_more(self):
+    def test_a_first_move_counter_white_is_eighty_percent_fake_even_in_the_best_board(self):
+        """真狂狼-真は、対抗白を出した側が本物でありうる、いちばん有利な盤面(本物が白を出せる相手は狂人だけ)。そこでも8割は偽。"""
         board = self.neko("ABC", [{"player": "A", "target": "B", "color": "白"}])
-        self.assertLessEqual(shares_of(board)["A"]["真"], 0.2)
+        worlds = enumerate_worlds(board)
+        best = [w for w in worlds if pattern_label(board, w.assign) == "真狼狂-真"]
+        self.assertAlmostEqual(shares_of(board, best)["A"]["真"], 0.2)
+        wolves_only = [w for w in worlds if pattern_label(board, w.assign) == "真狼狼-真"]      # 真狼狼では、本物は人狼に白を出せない
+        self.assertTrue(wolves_only and all(w.assign["A"] != "占い師" for w in wolves_only))
+        for seers in ("AB", "ABC", "ABCD"):                                                       # どの名乗りの数でも、8割以上が偽
+            b = self.neko(seers, [{"player": "A", "target": "B", "color": "白"}])
+            self.assertLessEqual(shares_of(b)["A"]["真"], 0.2, seers)
 
     def test_the_medium_is_mostly_real_on_every_board(self):
         for seers in ("AB", "ABC"):
@@ -197,8 +246,10 @@ class EnvironmentTreatmentTest(unittest.TestCase):
         self.assertEqual(result_factor(board, {"A": "人狼", "D": "人狼"}), 1.0)                    # 仲間への黒(切り)は段階で扱う
         self.assertEqual(result_factor(board, {"A": "占い師", "D": "人狼"}), 1.0)                   # 本物は、真偽の条件で決まる
         board.results[0]["color"] = "白"
-        self.assertAlmostEqual(result_factor(board, {"A": "人狼", "D": "村人"}), 1 - f)
+        self.assertEqual(result_factor(board, {"A": "人狼", "D": "村人"}), 1.0)                     # 偽の白は、割り引かない
         board.results[0]["first"] = False                                                         # 二手目以降は、かけない
+        board.results[0]["color"] = "黒"
+        self.assertEqual(result_factor(board, {"A": "人狼", "D": "村人"}), 1.0)
         self.assertEqual(result_factor(board, {"A": "人狼", "D": "村人"}), 1.0)
         board.results[0].update(first=True, kind="霊能")                                           # 霊能の結果も、かけない
         self.assertEqual(result_factor(board, {"A": "人狼", "D": "村人"}), 1.0)
