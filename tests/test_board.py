@@ -117,11 +117,22 @@ class TierTest(unittest.TestCase):
         weight: dict[str, float] = {}
         for r in rows:
             weight[r["label"]] = weight.get(r["label"], 0.0) + r["weight"]
-        self.assertGreater(weight["真狼狂-真"], 3 * weight["真狼狼-真"])            # 真狂狼が多い
-        self.assertGreater(weight["真狼狼-真"], 0)                                  # 真狼狼もありうる
+        self.assertAlmostEqual(weight["真狼狂-真"] / weight["真狼狼-真"], 3.0)      # 真狂狼 7.5 : 真狼狼 2.5(依頼者の数字)
         reasons = {r["label"]: r["reasons"] for r in rows if r["tier"] == 2}
         self.assertEqual(reasons["真狼狼-真"], ("偽が人狼だけ(狂人が偽に出ない)",))
         self.assertIn("3-1: 定番: 真狼狂-真 | ありうる: 真狼狼-真 | まれ:", patterns_text())
+
+    def test_the_composition_shares_match_the_users_numbers(self):
+        """依頼者の数字: 2-1 のうち真狂は、いまの置き方(6%くらい)でよい。3-1 は、真狂狼 7.5 : 真狼狼 2.5。"""
+        def weights(seers: int) -> dict[str, float]:
+            out: dict[str, float] = {}
+            for r in claim_patterns(seers, 1):
+                out[r["label"]] = out.get(r["label"], 0.0) + r["weight"]
+            return out
+        w21 = weights(2)
+        self.assertAlmostEqual(w21["真狂-真"] / (w21["真狂-真"] + w21["真狼-真"]), 0.0625, places=3)
+        w31 = weights(3)
+        self.assertAlmostEqual(w31["真狼狼-真"] / (w31["真狼狼-真"] + w31["真狼狂-真"]), 0.25)
 
     def test_with_one_fake_the_madman_is_possible_and_with_two_or_more_he_is_expected(self):
         board = Board(players=list("ABCDEFGHIJK"), roles=dict(ROLES_12A_NEKO))
@@ -195,15 +206,14 @@ class EnvironmentTreatmentTest(unittest.TestCase):
             self.assertLess(shares_of(board, fake_black_first=0.5)["A"]["真"], first, target)
 
     def test_a_counter_black_in_3_1_is_quite_real_and_a_first_move_black_leans_real_everywhere(self):
-        """依頼者の話: 3-1 の対抗黒は結構真目(狩人が、霊護衛でなく黒を出した占いの護衛を固定するまである)。初手黒がとにかく真目多い環境。
-        偽が初手に黒を出す重みは、依頼者の答えで2割(FAKE_BLACK_FIRST)。このとき黒を出した側は、本物の見込みが6割台。"""
+        """依頼者の話: 3-1 の対抗黒は結構真目(狩人が、霊護衛でなく黒を出した占いの護衛を固定するまである。目安は本物の見込み7割台)。
+        初手黒がとにかく真目多い環境。偽の初手の黒を 1.5割、3-1 の真狼狼を 2.5 にして、7割台に合わせた(依頼者の判断)。"""
         board = self.neko("ABC", [{"player": "A", "target": "B", "color": "黒"}])
         shares = shares_of(board)
-        self.assertGreater(shares["A"]["真"], 0.6)
+        self.assertGreater(shares["A"]["真"], 0.7)
+        self.assertLess(shares["A"]["真"], 0.8)
         self.assertGreater(shares["A"]["真"], 2 * shares["B"]["真"])                   # 黒を出された側は、本物であることが少ない
-        lighter = shares_of(board, fake_black_first=0.15)["A"]["真"]                   # 偽の黒を1.5割にすると、7割に届く
-        self.assertGreater(lighter, 0.68)
-        self.assertLess(lighter, 0.75)
+        self.assertLess(shares_of(board, fake_black_first=0.2)["A"]["真"], shares["A"]["真"])   # 偽の黒が多いほど、真目は薄れる
         for seers, target in (("AB", "B"), ("AB", "E"), ("ABC", "B")):                  # 2-1 の対抗黒・グレーへの黒と、3-1 の対抗黒
             b = self.neko(seers, [{"player": "A", "target": target, "color": "黒"}])
             self.assertGreater(shares_of(b)["A"]["真"], 0.5, (seers, target))

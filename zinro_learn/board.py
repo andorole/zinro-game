@@ -32,10 +32,12 @@ TIER_NAME = {3: "定番", 2: "ありうる", 1: "まれ"}
 # 仮の重み(世界1通りあたり)。「定番」を数にしただけで、実戦の比率ではない。まれは、潜伏した本物の位置など、配り方の数が
 # 多くなるので、1通りの重みを小さくした(2-1 の昼1で、霊が本物の見込みが 9割台になる目安。依頼者の話「霊はだいたい真」)。
 TIER_WEIGHT = {3: 1.0, 2: 0.2, 1: 0.005}
-# 偽の占いが、初手に「人狼でない人」へ黒を出す重み(白を出す場合を 1 としたときの比)。依頼者の答えは「1割よりはある。2割程度」。
-# (依頼者の話が「初手の黒は真目」→「3-1 の対抗黒は結構真目」と強まったときに 0.1 へ下げたが、この答えで 0.2 に戻した。
-# 0.2 だと、3-1 の対抗黒で黒を出した側が本物の見込みは 6割台。依頼者の言う護衛固定の目安 7割台には、少し足りない)
-FAKE_BLACK_FIRST = 0.2
+# ありうるのうち、偽が2人以上で人狼だけの世界(3-1 の真狼狼)は、1通りの重みを別にした。依頼者の数字は「3-1 は真狂狼 7.5 : 真狼狼 2.5」。
+# 3-1 の通り数は、真狂狼も真狼狼も2520通りなので、真狼狼の重みは 1/3(2-1 の真狂の 0.2 は、「いまの置き方でよい」ので動かさない)。
+WEIGHT_NO_MAD = 1 / 3
+# 偽の占いが、初手に「人狼でない人」へ黒を出す重み(白を出す場合を 1 としたときの比)。依頼者は「1割よりはある。2割程度」と言い、
+# そのあと、3-1 の対抗黒を護衛固定の目安(7割台)に寄せるため、「1.5割にしよう。真狼狼を2.5にすれば丁度良さそう」と決めた。
+FAKE_BLACK_FIRST = 0.15
 TYPE_ORDER = "真狼狂"                                    # 名乗りの種類: 本物・人狼・狂人
 
 
@@ -84,7 +86,7 @@ class World:
 
     @property
     def weight(self) -> float:
-        return self.count * TIER_WEIGHT[self.tier] * self.factor
+        return self.count * world_base_weight(self.tier, self.reasons) * self.factor
 
 
 def domain(board: Board, player: str) -> set[str]:
@@ -148,6 +150,13 @@ def world_judgement(board: Board, assign: dict) -> tuple[int, tuple[str, ...]]:
             tier = min(tier, 1)
             reasons.append(REASON_CUT)
     return tier, tuple(dict.fromkeys(reasons))
+
+
+def world_base_weight(tier: int, reasons: tuple[str, ...]) -> float:
+    """世界1通りあたりの重み(仮)。段階ごとの数字。ありうるのうち、偽が人狼だけの世界(3-1 の真狼狼)は、別の数字。"""
+    if tier == 2 and reasons == (REASON_NO_MAD,):
+        return WEIGHT_NO_MAD
+    return TIER_WEIGHT[tier]
 
 
 def world_tier(board: Board, assign: dict) -> int:
