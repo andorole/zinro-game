@@ -104,9 +104,13 @@ class TierTest(unittest.TestCase):
         by_tier = {t: sorted({r["label"] for r in rows if r["tier"] == t}) for t in (3, 2, 1)}   # 名乗った人の入れ替えは、同じ組み合わせ
         self.assertEqual(by_tier[3], ["真狼-真"])
         self.assertEqual(by_tier[2], ["真狂-真"])
-        self.assertNotIn("真狼-狼", by_tier[3] + by_tier[2])         # 霊の偽は、まれ
-        self.assertIn("真狼-狼", by_tier[1])
+        self.assertEqual(by_tier[1], [])                              # ロケットCOなら、本物が名乗らない世界(霊の偽・占いの潜伏)は、ない
         self.assertIn("2-1: 定番: 真狼-真 | ありうる: 真狂-真 | まれ:", patterns_text())
+        # ロケットCOでない一般の盤面では、霊に本物がいない(霊の偽)のは、まれ
+        loose = claim_patterns(2, 1, rco=False)
+        loose_tier = {t: sorted({r["label"] for r in loose if r["tier"] == t}) for t in (3, 2, 1)}
+        self.assertNotIn("真狼-狼", loose_tier[3] + loose_tier[2])
+        self.assertIn("真狼-狼", loose_tier[1])
 
     def test_three_seers_and_one_medium_the_common_case_has_a_madman_and_two_wolves_are_possible(self):
         """依頼者の話: 3-1 は、12A猫でも真狂狼がまだ多い。真狼狼もありうる。"""
@@ -144,9 +148,22 @@ class TierTest(unittest.TestCase):
         self.assertEqual(world_judgement(board, {"A": "占い師", "B": "人狼", "C": "人狼", "K": "霊能者"})[0], 2)
 
     def test_a_lone_medium_is_real_in_the_standard_case(self):
-        rows = claim_patterns(0, 1)
+        rows = claim_patterns(0, 1, rco=False)                        # ロケットCOでない一般の盤面
         self.assertEqual(sorted({r["label"] for r in rows if r["tier"] == 3}), ["なし-真"])
         self.assertEqual({r["label"] for r in rows if r["tier"] == 1}, {"なし-狼", "なし-狂"})
+
+    def test_rocket_co_removes_the_worlds_where_the_real_seer_or_medium_hides(self):
+        """依頼者の説明: RCO はロケットCO(一発言目の CO)。狐のない配役では強いので、約束事として潜伏は「ない」。"""
+        self.assertEqual(claim_patterns(0, 1), [])                    # 占いの名乗りがない盤面は、ない
+        self.assertEqual(claim_patterns(1, 0), [])
+        self.assertIn("(占い・霊能の本物は、ロケットCO", patterns_text())
+        self.assertNotIn("0-1:", patterns_text())
+        board = claim_board(ROLES_12A_NEKO, "ABCDEFGHIJK", "AB", "K", [])
+        worlds = enumerate_worlds(board)
+        self.assertTrue(worlds and all(w.assign["K"] == "霊能者" for w in worlds))      # 霊の名乗りが1人なら、本物
+        self.assertTrue(all("占い師" in (w.assign["A"], w.assign["B"]) for w in worlds))   # 本物の占いは、名乗った2人の中にいる
+        board.rco = False
+        self.assertTrue(any(w.assign["K"] != "霊能者" for w in enumerate_worlds(board)))
 
     def test_a_fake_black_that_hits_a_wolf_is_rare_and_explained(self):
         board = Board(players=list("ABCDEFGHIJK"), roles={"人狼": 3, "狂人": 1, "占い師": 1, "霊能者": 1, "狩人": 1, "猫又": 1, "村人": 3})
@@ -162,9 +179,9 @@ class TierTest(unittest.TestCase):
         self.assertEqual(pattern_label(board, assign), "真狼-真")
 
 
-def claim_board(roles: dict, players: str, seers: str, medium: str, results: list[dict]) -> Board:
-    """占いを名乗った人(seers)と、霊能を名乗った1人(medium)と、占いの初手の結果がある盤面。"""
-    board = Board(players=list(players), roles=dict(roles))
+def claim_board(roles: dict, players: str, seers: str, medium: str, results: list[dict], rco: bool = True) -> Board:
+    """占いを名乗った人(seers)と、霊能を名乗った1人(medium)と、占いの初手の結果がある盤面。rco は、本物はロケットCOで名乗る(潜伏なし)。"""
+    board = Board(players=list(players), roles=dict(roles), rco=rco)
     board.claims = [(p, "占い師") for p in seers] + [(medium, "霊能者")]
     board.results = [dict(kind="占い", first=True, **r) for r in results]
     return board
@@ -283,7 +300,7 @@ class ElevenAMemoTest(unittest.TestCase):
 
     def shares(self, n: int) -> dict[str, dict[str, float]]:
         players = "ABCDEFGHIJ"
-        board = claim_board(ROLES_11A, players, players[:n], players[n], [{"player": "A", "target": "B", "color": "白"}])
+        board = claim_board(ROLES_11A, players, players[:n], players[n], [{"player": "A", "target": "B", "color": "白"}], rco=False)
         worlds = enumerate_worlds(board, fake_black_first=0.0)              # 癖を入れない(純粋な組み合わせ論)
         keep = [w for w in worlds if pattern_label(board, w.assign) == self.LABELS[n]]
         self.assertTrue(keep)
@@ -314,7 +331,7 @@ class ElevenAMemoTest(unittest.TestCase):
                                          {"A": (21.43, 39.29, 39.29), "B": (35.71, 42.86, 21.43), "C": (42.86, 17.86, 39.29)}),
         }
         for name, (arrows, expected) in cases.items():
-            board = claim_board(ROLES_11A, players, "ABC", "D", [{"player": p, "target": t, "color": "白"} for p, t in arrows])
+            board = claim_board(ROLES_11A, players, "ABC", "D", [{"player": p, "target": t, "color": "白"} for p, t in arrows], rco=False)
             worlds = [w for w in enumerate_worlds(board, fake_black_first=0.0) if pattern_label(board, w.assign) == self.LABELS[3]]
             shares = shares_of(board, worlds)
             for player, (real, mad, wolf) in expected.items():
@@ -325,7 +342,7 @@ class ElevenAMemoTest(unittest.TestCase):
         """メモ 1-3: 「霊に白=真目が高い」。理由は、グレー白が少し偽寄りだから(本物はグレーで人狼を引くと黒になる)。"""
         players = "ABCDEFGHIJ"
         board = claim_board(ROLES_11A, players, "ABC", "D", [
-            {"player": "A", "target": "E", "color": "白"}, {"player": "B", "target": "F", "color": "白"}, {"player": "C", "target": "D", "color": "白"}])
+            {"player": "A", "target": "E", "color": "白"}, {"player": "B", "target": "F", "color": "白"}, {"player": "C", "target": "D", "color": "白"}], rco=False)
         worlds = [w for w in enumerate_worlds(board, fake_black_first=0.0) if pattern_label(board, w.assign) == self.LABELS[3]]
         shares = shares_of(board, worlds)
         self.assertGreater(shares["C"]["真"], shares["A"]["真"])
@@ -334,7 +351,7 @@ class ElevenAMemoTest(unittest.TestCase):
     def test_a_mutually_white_pair_always_has_a_madman(self):
         players = "ABCDEFGHIJ"
         board = claim_board(ROLES_11A, players, "ABC", "D", [
-            {"player": "A", "target": "B", "color": "白"}, {"player": "B", "target": "A", "color": "白"}])
+            {"player": "A", "target": "B", "color": "白"}, {"player": "B", "target": "A", "color": "白"}], rco=False)
         worlds = enumerate_worlds(board, fake_black_first=0.0)
         keep = [w for w in worlds if pattern_label(board, w.assign) == self.LABELS[3]]
         self.assertTrue(keep and all("狂人" in (w.assign["A"], w.assign["B"]) for w in keep))

@@ -7,6 +7,8 @@
 - 「定番」の段階は、依頼者に聞いた環境(現在の12A猫: 占い2・霊能1なら、占いは真と狼、霊は真が定番。占い3・霊能1なら、
   真狂狼が多く、真狼狼もありうる。霊はたいてい真)を、規則にしたもの(world_judgement)。実戦の比率ではなく、
   「定番／ありうる／まれ」の目安。重みの数字は仮。
+- 占い・霊能の本物は、一発言目に名乗る(ロケットCO。RCO)。狐のない配役では、ロケットCOが強いので、決まりというより約束事として、
+  潜伏は「ない」(依頼者の説明)。Board.rco が真なら、名乗りに本物がいない世界(潜伏)は、世界から外す。
 - 結果の出し方の癖も、環境の話から入れた(result_factor)。初手に偽の占いが、人狼でない人へ黒を出すのは「人外の凸」で、
   最良手ではないので少ない。だから、初手の黒(対抗黒・グレーへの黒)は、真目になる(3-1 の対抗黒は、結構真目)。初手の対抗白は、本物が出せる相手が
   狂人だけ(相手が人狼なら黒になる)なので、出した側は偽目。いちばん有利な真狂狼でも、8割は偽(11A のメモの数え方と同じ)。
@@ -29,8 +31,8 @@ ROLES_12A_NEKO = {"人狼": 3, "狂人": 1, "占い師": 1, "霊能者": 1, "狩
 CLAIM_ROLES = ("占い師", "霊能者")                       # 名乗られる役職(結果を出す役職)
 ROLE_OF_KIND = {"占い": "占い師", "霊能": "霊能者"}
 TIER_NAME = {3: "定番", 2: "ありうる", 1: "まれ"}
-# 仮の重み(世界1通りあたり)。「定番」を数にしただけで、実戦の比率ではない。まれは、潜伏した本物の位置など、配り方の数が
-# 多くなるので、1通りの重みを小さくした(2-1 の昼1で、霊が本物の見込みが 9割台になる目安。依頼者の話「霊はだいたい真」)。
+# 仮の重み(世界1通りあたり)。「定番」を数にしただけで、実戦の比率ではない。まれは、切り・偶然(偽の黒が人狼に当たる)と、
+# rco でないときの潜伏(本物が名乗らない)。潜伏は、配り方の数が多いので、1通りの重みを小さくした。
 TIER_WEIGHT = {3: 1.0, 2: 0.2, 1: 0.005}
 # ありうるのうち、偽が2人以上で人狼だけの世界(3-1 の真狼狼)は、1通りの重みを別にした。依頼者の数字は「3-1 は真狂狼 7.5 : 真狼狼 2.5」。
 # 3-1 の通り数は、真狂狼も真狼狼も2520通りなので、真狼狼の重みは 1/3(2-1 の真狂の 0.2 は、「いまの置き方でよい」ので動かさない)。
@@ -54,6 +56,7 @@ class Board:
     other_dead: list[str] = field(default_factory=list)                  # 道連れなど、襲撃でない死
     wolf_co: list[str] = field(default_factory=list)                     # 「狼CO」した人
     ongoing: bool = True                                                 # まだ勝敗が決まっていない(人狼が全滅しておらず、人間より少ない)
+    rco: bool = False                                                    # 占い・霊能の本物は、一発言目に名乗る(ロケットCO)。名乗りに本物がいない(潜伏)世界は、ない
 
     @property
     def dead(self) -> list[str]:
@@ -181,6 +184,15 @@ def result_factor(board: Board, assign: dict, fake_black_first: float = FAKE_BLA
     return factor
 
 
+def real_claimed(board: Board, assign: dict) -> bool:
+    """占い・霊能の本物が、みな名乗った人の中にいる。名乗りが1人もない役職(なのに役職の人数が1以上)は、本物が名乗っていない。"""
+    for role in CLAIM_ROLES:
+        n = board.roles.get(role, 0)
+        if n > 0 and sum(1 for p in board.claimants(role) if assign[p] == role) != n:
+            return False
+    return True
+
+
 def enumerate_worlds(board: Board, fake_black_first: float = FAKE_BLACK_FIRST) -> list[World]:
     keys = board.key_players()
     free = [p for p in board.players if p not in set(keys)]
@@ -203,6 +215,8 @@ def enumerate_worlds(board: Board, fake_black_first: float = FAKE_BLACK_FIRST) -
         if i == len(keys):
             if sum(left.values()) != len(free):
                 return
+            if board.rco and not real_claimed(board, assign):
+                return                                                        # 本物は、ロケットCOで名乗っているはず(潜伏はない)
             if board.ongoing:
                 alive_wolves = board.roles["人狼"] - sum(1 for p in board.dead if assign[p] == "人狼")
                 if alive_wolves <= 0 or alive_wolves >= len(board.alive) - alive_wolves:
@@ -377,7 +391,8 @@ def load_record(path: str | Path) -> dict:
 def board_at(record: dict, stage: int) -> Board:
     """記録の events から、段階 stage までに公開された情報の盤面を作る。"""
     roles = dict(record.get("roles") or ROLES_12A_NEKO)
-    board = Board(players=list(record["players"]), roles=roles, ongoing=not record["stages"][stage].get("ended", False))
+    board = Board(players=list(record["players"]), roles=roles, ongoing=not record["stages"][stage].get("ended", False),
+                  rco=record.get("rco", True))
     for e in record["events"]:
         if e["stage"] > stage:
             continue
@@ -497,25 +512,31 @@ def record_report(record: dict) -> str:
 # ---------------------------------------------------------------- 名乗りの組み合わせの一覧
 
 
-def claim_patterns(seers: int, mediums: int, roles: dict[str, int] | None = None) -> list[dict]:
-    """占い seers 人・霊能 mediums 人が名乗ったときの、名乗りの種類(真・狼・狂)の組み合わせと段階。"""
+def claim_patterns(seers: int, mediums: int, roles: dict[str, int] | None = None, rco: bool = True) -> list[dict]:
+    """占い seers 人・霊能 mediums 人が名乗ったときの、名乗りの種類(真・狼・狂)の組み合わせと段階。
+    rco(ロケットCO)なら、本物は必ず名乗るので、名乗りが0人の側がある組み合わせは、ない(空のまま)。"""
     roles = dict(roles or ROLES_12A_NEKO)
     players = [f"占{i + 1}" for i in range(seers)] + [f"霊{i + 1}" for i in range(mediums)]
     players += [f"灰{i + 1}" for i in range(sum(roles.values()) - len(players))]
-    board = Board(players=players, roles=roles)
+    board = Board(players=players, roles=roles, rco=rco)
     board.claims = [(f"占{i + 1}", "占い師") for i in range(seers)] + [(f"霊{i + 1}", "霊能者") for i in range(mediums)]
     return pattern_table(board, enumerate_worlds(board))
 
 
-def patterns_text() -> str:
-    """名乗りの数(占い-霊)ごとの、名乗りの種類(真・狼・狂)の組み合わせ。段階ごとにまとめる。"""
+def patterns_text(rco: bool = True) -> str:
+    """名乗りの数(占い-霊)ごとの、名乗りの種類(真・狼・狂)の組み合わせ。段階ごとにまとめる。
+    rco なら、占い・霊能の本物は必ず名乗る(ロケットCO)ので、0 人の側がある組み合わせは、ない。"""
     lines = ["占い-霊の名乗りの数: 定番 / ありうる / まれ(名乗りの種類の組み合わせ。真=本物、狼=人狼、狂=狂人)"]
+    if rco:
+        lines.append("(占い・霊能の本物は、ロケットCO(一発言目の CO)で名乗るので、0-x と x-0 は、ない)")
     for s in range(0, 4):
         for m in range(0, 3):
             if s == 0 and m == 0:
                 continue
+            if rco and (s == 0 or m == 0):
+                continue
             by_tier: dict[int, list[str]] = {3: [], 2: [], 1: []}
-            for r in claim_patterns(s, m):
+            for r in claim_patterns(s, m, rco=rco):
                 if r["label"] not in by_tier[r["tier"]]:
                     by_tier[r["tier"]].append(r["label"])
             lines.append(f"{s}-{m}: " + " | ".join(f"{TIER_NAME[t]}: {'、'.join(by_tier[t]) or 'なし'}" for t in (3, 2, 1)))
