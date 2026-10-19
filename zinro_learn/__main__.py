@@ -6,6 +6,7 @@
   python -m zinro_learn timeline logs/normalized/<id>.json [...]   # 役職、夜の行動と通知、死亡、人狼の夜チャットを、夜と昼の順に並べる
   python -m zinro_learn board knowledge/boards/<id>.json [--stage N]   # 盤面整理: 公開された情報に合う役職の割り当て(真・狼・狂)、確定した黒白、縄
   python -m zinro_learn board --patterns   # 名乗りの数(占い-霊)ごとの、名乗りの種類の組み合わせと、定番／ありうる／まれ
+  python -m zinro_learn progress --seers 3 [--result A:B:黒] [--guard medium|blacksayer]   # 進行の比較(占いロラ・グレランなど)の、村の勝率の試算
   python -m zinro_learn sync     # 発言例から、ガイドの「発言の型」の表を作り直す
   python -m zinro_learn check    # knowledge/ の整合性を調べる(問題があれば終了コード 1)
   python -m zinro_learn structure  # 連投と返信の型(1発言に1返信ではない構造)を数える
@@ -17,9 +18,10 @@ import json
 from pathlib import Path
 
 from .analyze import format_stats, speech_stats
-from .board import load_record, patterns_text, record_report, stage_report
+from .board import ROLES_12A_NEKO, Board, load_record, patterns_text, record_report, stage_report
 from .check import check, load_examples, load_games, sync_table
 from .parse import anonymize, build_mapping, parse_game
+from .progress import GUARD_NAME, compare_text, hit_rates
 from .roles import format_timeline
 from .structure import format_structure
 
@@ -92,6 +94,23 @@ def board(args) -> None:
     print(stage_report(record, args.stage) if args.stage is not None else record_report(record))
 
 
+def progress(args) -> None:
+    """12A猫(11人。ダミーを除く)の、占い args.seers 人・霊能 K の盤面で、進行ごとの村の勝率を試算する。結果は A:B:黒 の形。"""
+    players = list("ABCDEFGHIJK")
+    if not 1 <= args.seers <= 5:
+        raise SystemExit("--seers は 1〜5")
+    board = Board(players=players, roles=dict(ROLES_12A_NEKO), rco=True)
+    board.claims = [(p, "占い師") for p in players[: args.seers]] + [("K", "霊能者")]
+    for item in args.result:
+        player, target, color = item.split(":")
+        board.results.append({"kind": "占い", "player": player, "target": target, "color": color, "first": True})
+    rates = hit_rates(board)
+    seers = "、".join(f"{p} {v * 100:.1f}%" for p, v in rates["占い"].items())
+    title = f"{args.seers}-1" + ("・" + "、".join(args.result) if args.result else "・結果なし") + f"・{GUARD_NAME[args.guard]}"
+    print(f"昼1の1本目の吊りが人狼に当たる見込み(厳密): 占いの名乗り {seers} / 灰1人 {rates['灰'] * 100:.1f}%({rates['灰の人数']}人)")
+    print(compare_text(board, title, args.n, args.seed, guard=args.guard))
+
+
 def sync(args) -> None:
     root = Path(args.root)
     path = root / "knowledge/discussion_style.md"
@@ -150,6 +169,14 @@ def main(argv=None) -> None:
     p.add_argument("--stage", type=int, help="段階の番号(0から)。省略すると全部")
     p.add_argument("--patterns", action="store_true", help="名乗りの数(占い-霊)ごとの、名乗りの種類の組み合わせ")
     p.set_defaults(func=board)
+
+    p = sub.add_parser("progress", help="進行の比較: 占いロラ・グレランなどの、村の勝率を試算する(12A猫、占い N 人・霊能 K)")
+    p.add_argument("--seers", type=int, default=3, help="占いの名乗りの人数(A から順に)")
+    p.add_argument("--result", action="append", default=[], help="占いの初手の結果。例: A:B:黒(A が B に黒)。複数指定可")
+    p.add_argument("--guard", choices=["medium", "blacksayer"], default=None, help="狩人の護衛: medium=霊護衛固定、blacksayer=黒出し占い護衛固定")
+    p.add_argument("--n", type=int, default=20000, help="試算の回数")
+    p.add_argument("--seed", type=int, default=1)
+    p.set_defaults(func=progress)
 
     p = sub.add_parser("sync", help="発言例から、ガイドの「発言の型」の表を作り直す")
     p.add_argument("--root", default=".")
