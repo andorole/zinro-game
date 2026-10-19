@@ -5,12 +5,13 @@ from itertools import permutations
 from pathlib import Path
 
 from zinro_learn.board import (
-    Board, board_at, claim_patterns, confirmed, enumerate_worlds, load_record, narrowing_wins, next_hang_line,
-    marginals, pattern_label, patterns_text, rope_slack, stage_report, world_judgement,
+    FAKE_BLACK_FIRST, ROLES_12A_NEKO, Board, board_at, claim_patterns, confirmed, enumerate_worlds, load_record, narrowing_wins,
+    next_hang_line, marginals, pattern_label, patterns_text, result_factor, rope_slack, stage_report, type_shares, world_judgement,
 )
 
 ROOT = Path(__file__).resolve().parent.parent
 SMALL = {"人狼": 1, "狂人": 1, "占い師": 1, "霊能者": 1, "村人": 2}
+ROLES_11A = {"人狼": 2, "狂人": 1, "占い師": 1, "霊能者": 1, "狩人": 1, "村人": 4}      # 11A(ダミーを除く10人)
 
 
 def small_board(**kw) -> Board:
@@ -126,6 +127,124 @@ class TierTest(unittest.TestCase):
         self.assertEqual(pattern_label(board, assign), "真狼-真")
 
 
+def claim_board(roles: dict, players: str, seers: str, medium: str, results: list[dict]) -> Board:
+    """占いを名乗った人(seers)と、霊能を名乗った1人(medium)と、占いの初手の結果がある盤面。"""
+    board = Board(players=list(players), roles=dict(roles))
+    board.claims = [(p, "占い師") for p in seers] + [(medium, "霊能者")]
+    board.results = [dict(kind="占い", first=True, **r) for r in results]
+    return board
+
+
+def shares_of(board: Board, worlds=None, **kw) -> dict[str, dict[str, float]]:
+    worlds = enumerate_worlds(board, **kw) if worlds is None else worlds
+    return {p: sh for _, p, sh in type_shares(board, worlds)}
+
+
+class EnvironmentTreatmentTest(unittest.TestCase):
+    """依頼者に聞いた、今の環境での扱い。重みの数字は仮なので、割合の大小と順序で確かめる。"""
+
+    def neko(self, seers: str, results: list[dict]) -> Board:
+        return claim_board(ROLES_12A_NEKO, "ABCDEFGHIJK", seers, "K", results)
+
+    def test_a_first_move_counter_white_in_2_1_is_probably_a_wolf(self):
+        board = self.neko("AB", [{"player": "A", "target": "B", "color": "白"}])
+        worlds = enumerate_worlds(board)
+        # 真狼のとき、本物は相手(人狼)に白を出せない。出せるのは、相手が狂人のとき(環境の問題)だけ
+        self.assertFalse(any(w.assign["A"] == "占い師" and w.assign["B"] == "人狼" for w in worlds))
+        self.assertTrue(any(w.assign["A"] == "占い師" and w.assign["B"] == "狂人" for w in worlds))
+        a = shares_of(board, worlds)["A"]
+        self.assertGreater(a["狼"], 0.5)
+        self.assertGreater(a["狼"], 3 * a["真"])
+        # 定番(真狼-真)の世界では、出した A は人狼
+        standard = [w for w in worlds if w.tier == 3]
+        self.assertTrue(standard and all(w.assign["A"] == "人狼" and w.assign["B"] == "占い師" for w in standard))
+
+    def test_a_first_move_black_leans_real_whether_it_is_on_the_counter_or_on_grey(self):
+        for target in ("B", "D"):                                         # 初手の対抗黒と、初手のグレーへの黒
+            board = self.neko("AB", [{"player": "A", "target": target, "color": "黒"}])
+            first = shares_of(board)["A"]["真"]
+            self.assertGreater(first, 0.5, target)
+            later = self.neko("AB", [{"player": "A", "target": target, "color": "黒"}])
+            later.results[0]["first"] = False                              # 二手目以降は、癖を聞いていないので数えない
+            self.assertGreater(first, shares_of(later)["A"]["真"] + 0.1, target)
+            # 偽が初手に黒を出す割合が高いほど、真目は薄れる(人外の凸が最良手でない、という話が効いている)
+            self.assertLess(shares_of(board, fake_black_first=0.5)["A"]["真"], first, target)
+
+    def test_a_first_move_white_on_grey_does_not_lean_either_way(self):
+        board = self.neko("AB", [{"player": "A", "target": "D", "color": "白"}])
+        self.assertAlmostEqual(shares_of(board)["A"]["真"], 0.5, delta=0.15)
+
+    def test_a_counter_white_in_3_1_is_about_eighty_percent_fake_or_more(self):
+        board = self.neko("ABC", [{"player": "A", "target": "B", "color": "白"}])
+        self.assertLessEqual(shares_of(board)["A"]["真"], 0.2)
+
+    def test_the_medium_is_mostly_real_on_every_board(self):
+        for seers in ("AB", "ABC"):
+            board = self.neko(seers, [{"player": "A", "target": "B", "color": "白"}])
+            self.assertGreater(shares_of(board)["K"]["真"], 0.9, seers)
+
+    def test_the_shares_of_each_claimant_add_up_to_one(self):
+        board = self.neko("AB", [{"player": "A", "target": "D", "color": "黒"}])
+        for _, p, sh in type_shares(board, enumerate_worlds(board)):
+            self.assertAlmostEqual(sum(sh.values()), 1.0, msg=p)
+
+    def test_the_result_factor_only_touches_a_fakes_first_seer_result(self):
+        board = Board(players=list("ABCDEFGHIJK"), roles=dict(ROLES_12A_NEKO))
+        board.results = [{"kind": "占い", "player": "A", "target": "D", "color": "黒", "first": True}]
+        f = FAKE_BLACK_FIRST
+        self.assertAlmostEqual(result_factor(board, {"A": "人狼", "D": "村人"}), f)                 # 人外の凸
+        self.assertAlmostEqual(result_factor(board, {"A": "狂人", "D": "村人"}), f)
+        self.assertEqual(result_factor(board, {"A": "人狼", "D": "人狼"}), 1.0)                    # 仲間への黒(切り)は段階で扱う
+        self.assertEqual(result_factor(board, {"A": "占い師", "D": "人狼"}), 1.0)                   # 本物は、真偽の条件で決まる
+        board.results[0]["color"] = "白"
+        self.assertAlmostEqual(result_factor(board, {"A": "人狼", "D": "村人"}), 1 - f)
+        board.results[0]["first"] = False                                                         # 二手目以降は、かけない
+        self.assertEqual(result_factor(board, {"A": "人狼", "D": "村人"}), 1.0)
+        board.results[0].update(first=True, kind="霊能")                                           # 霊能の結果も、かけない
+        self.assertEqual(result_factor(board, {"A": "人狼", "D": "村人"}), 1.0)
+
+    def test_a_fake_that_never_charges_black_drops_those_worlds(self):
+        board = self.neko("AB", [{"player": "A", "target": "D", "color": "黒"}])
+        worlds = enumerate_worlds(board, fake_black_first=0.0)
+        # 人狼でない人への偽の黒がなくなる。残る偽の黒は、人狼への黒(切り・偶然)だけ
+        fake = [w for w in worlds if w.assign["A"] != "占い師"]
+        self.assertTrue(fake and all(w.assign["D"] == "人狼" and w.tier == 1 for w in fake))
+
+
+class ElevenAMemoTest(unittest.TestCase):
+    """11A の確率論のまとめ(依頼者の持ち込み)の、組み合わせ論の数字を再現する。
+    対抗白の矢印は、本物が出すなら 1通り(真→狂のみ)、偽が出すなら (n-1)^2 通り。出した側が本物の見込みは 1/(1+(n-1)^2)。"""
+
+    LABELS = {2: "真狂-真", 3: "真狼狂-真", 4: "真狼狼狂-真"}              # 占いの名乗りの数 → 本物1人・狂人1人・残りは人狼、霊は本物
+
+    def shares(self, n: int) -> dict[str, dict[str, float]]:
+        players = "ABCDEFGHIJ"
+        board = claim_board(ROLES_11A, players, players[:n], players[n], [{"player": "A", "target": "B", "color": "白"}])
+        worlds = enumerate_worlds(board, fake_black_first=0.0)              # 癖を入れない(純粋な組み合わせ論)
+        keep = [w for w in worlds if pattern_label(board, w.assign) == self.LABELS[n]]
+        self.assertTrue(keep)
+        return shares_of(board, keep)
+
+    def test_the_giver_is_real_with_probability_one_over_one_plus_n_minus_one_squared(self):
+        for n, expected in ((2, 0.5), (3, 0.2), (4, 0.1)):
+            self.assertAlmostEqual(self.shares(n)["A"]["真"], expected, msg=f"{n}-1")
+
+    def test_the_3_1_posterior_matches_the_memo(self):
+        s = self.shares(3)
+        for player, (real, mad, wolf) in {"A": (0.2, 0.4, 0.4), "B": (0.4, 0.4, 0.2), "C": (0.4, 0.2, 0.4)}.items():
+            self.assertAlmostEqual(s[player]["真"], real, msg=player)
+            self.assertAlmostEqual(s[player]["狂"], mad, msg=player)
+            self.assertAlmostEqual(s[player]["狼"], wolf, msg=player)
+
+    def test_a_mutually_white_pair_always_has_a_madman(self):
+        players = "ABCDEFGHIJ"
+        board = claim_board(ROLES_11A, players, "ABC", "D", [
+            {"player": "A", "target": "B", "color": "白"}, {"player": "B", "target": "A", "color": "白"}])
+        worlds = enumerate_worlds(board, fake_black_first=0.0)
+        keep = [w for w in worlds if pattern_label(board, w.assign) == self.LABELS[3]]
+        self.assertTrue(keep and all("狂人" in (w.assign["A"], w.assign["B"]) for w in keep))
+
+
 class RopeTest(unittest.TestCase):
     def test_how_many_misses_the_village_can_afford(self):
         self.assertEqual(rope_slack(11, 3), 2)      # 昼1の12A: 外せるのは2回。3回目を外すと、人狼3・人間3で負け
@@ -177,6 +296,22 @@ class Log17BoardTest(unittest.TestCase):
         self.assertIn("[定番] 真狼-真: D=狼 L=真 / J=真", text)
         self.assertIn("外せる回数 2(縄数 3)", text)
         self.assertIn("実際: 真狼-真、定番", text)
+
+    def test_the_first_result_of_each_claimant_is_marked_as_the_first_move(self):
+        board = board_at(self.record, 4)
+        firsts = {(r["player"], r["target"]): r["first"] for r in board.results}
+        self.assertEqual(firsts, {("D", "H"): True, ("L", "M"): True, ("J", "M"): True, ("D", "F"): False, ("J", "D"): False})
+
+    def test_the_first_move_black_makes_the_real_seer_the_likelier_one_at_the_start(self):
+        """昼1: D は H に白(初手)、L は M に黒(初手のグレーへの黒)。L が真の見込みの方が高い。実際も L が真。"""
+        board = board_at(self.record, 0)
+        shares = shares_of(board)
+        self.assertGreater(shares["L"]["真"], shares["D"]["真"])
+        self.assertGreater(shares["D"]["狼"], shares["L"]["狼"])
+        self.assertIn("名乗った人の種類の見込み", stage_report(self.record, 0))
+
+    def test_no_shares_are_shown_when_only_rare_worlds_remain(self):
+        self.assertIn("まれだけなので、出さない", stage_report(self.record, 4))
 
     def test_unknown_event_kind_is_refused(self):
         record = json.loads(json.dumps(self.record))

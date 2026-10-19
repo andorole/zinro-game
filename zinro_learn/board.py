@@ -6,6 +6,9 @@
   縄の数(外せる吊りの回数)。
 - 「定番」の段階は、依頼者に聞いた環境(現在の12A猫: 占い2・霊能1なら、占いは真と狼、霊は真が定番。霊はたいてい真)を、
   規則にしたもの(world_tier)。実戦の比率ではなく、「定番／ありうる／まれ」の目安。重みの数字は仮。
+- 結果の出し方の癖も、環境の話から入れた(result_factor)。初手に偽の占いが、人狼でない人へ黒を出すのは「人外の凸」で、
+  最良手ではないので少ない。だから、初手の黒(対抗黒・グレーへの黒)は、真目になる。初手の対抗白は、2-1の定番(真狼)では
+  本物が出せない(相手が人狼なら黒になる)ので、出したのは人狼の見込みが高い。数字は仮で、依頼者に確かめる。
 
 世界の数え方: 名乗った人・結果の対象・死者・狼COの人(主要な人)の役職を、役職の人数の範囲で総当たりし、
 結果の真偽の条件(本物の占い師・霊能者の結果は正しい)を満たすものを残す。ほかの人(灰)は、残った役職を
@@ -24,7 +27,10 @@ ROLES_12A_NEKO = {"人狼": 3, "狂人": 1, "占い師": 1, "霊能者": 1, "狩
 CLAIM_ROLES = ("占い師", "霊能者")                       # 名乗られる役職(結果を出す役職)
 ROLE_OF_KIND = {"占い": "占い師", "霊能": "霊能者"}
 TIER_NAME = {3: "定番", 2: "ありうる", 1: "まれ"}
-TIER_WEIGHT = {3: 1.0, 2: 0.2, 1: 0.02}                  # 仮の重み。「定番」を数にしただけで、実戦の比率ではない
+# 仮の重み(世界1通りあたり)。「定番」を数にしただけで、実戦の比率ではない。まれは、潜伏した本物の位置など、配り方の数が
+# 多くなるので、1通りの重みを小さくした(2-1 の昼1で、霊が本物の見込みが 9割台になる目安。依頼者の話「霊はだいたい真」)。
+TIER_WEIGHT = {3: 1.0, 2: 0.2, 1: 0.005}
+FAKE_BLACK_FIRST = 0.2                                   # 仮。偽の占いが、初手に「人狼でない人」へ黒を出す割合(白を出す割合は 1 - これ)
 TYPE_ORDER = "真狼狂"                                    # 名乗りの種類: 本物・人狼・狂人
 
 
@@ -35,7 +41,7 @@ class Board:
     players: list[str]                                   # 参加者(ダミーを除く)
     roles: dict[str, int]
     claims: list[tuple[str, str]] = field(default_factory=list)          # (名乗った人, 役職)
-    results: list[dict] = field(default_factory=list)                    # kind(占い/霊能)・player・target・color(黒/白)
+    results: list[dict] = field(default_factory=list)                    # kind(占い/霊能)・player・target・color(黒/白)・first(その人の初手の結果か)
     executed: list[str] = field(default_factory=list)
     bitten: list[str] = field(default_factory=list)                      # 夜の襲撃で死んだ人
     other_dead: list[str] = field(default_factory=list)                  # 道連れなど、襲撃でない死
@@ -69,10 +75,11 @@ class World:
     count: int                                           # 灰への配り方の数
     tier: int
     reasons: tuple[str, ...] = ()                        # 定番でない理由
+    factor: float = 1.0                                  # 結果の出し方の癖(result_factor)
 
     @property
     def weight(self) -> float:
-        return self.count * TIER_WEIGHT[self.tier]
+        return self.count * TIER_WEIGHT[self.tier] * self.factor
 
 
 def domain(board: Board, player: str) -> set[str]:
@@ -134,7 +141,26 @@ def world_tier(board: Board, assign: dict) -> int:
     return world_judgement(board, assign)[0]
 
 
-def enumerate_worlds(board: Board) -> list[World]:
+def result_factor(board: Board, assign: dict, fake_black_first: float = FAKE_BLACK_FIRST) -> float:
+    """結果の出し方の癖(環境の話)。偽の占い(人狼・狂人)が、初手に出した結果にだけかける。
+    - 人狼でない人へ黒を出す(人外の凸): fake_black_first。最良手ではないので、少ない。
+    - 白を出す: 1 - fake_black_first。
+    本物の結果は、真偽の条件(truthful)で決まるので、かけない。人狼への黒(切り・偶然)は、段階(まれ)で扱う。
+    二手目以降と、霊能の結果は、癖を聞いていないので、かけない。"""
+    factor = 1.0
+    for r in board.results:
+        if r["kind"] != "占い" or not r.get("first"):
+            continue
+        if assign[r["player"]] not in ("人狼", "狂人"):
+            continue
+        if r["color"] == "白":
+            factor *= 1 - fake_black_first
+        elif assign[r["target"]] != "人狼":
+            factor *= fake_black_first
+    return factor
+
+
+def enumerate_worlds(board: Board, fake_black_first: float = FAKE_BLACK_FIRST) -> list[World]:
     keys = board.key_players()
     free = [p for p in board.players if p not in set(keys)]
     results_by_player: dict[str, list[dict]] = {}
@@ -164,7 +190,9 @@ def enumerate_worlds(board: Board) -> list[World]:
             for n in left.values():
                 ways //= factorial(n)
             tier, reasons = world_judgement(board, assign)
-            worlds.append(World(dict(assign), +left, ways, tier, reasons))
+            factor = result_factor(board, assign, fake_black_first)
+            if factor > 0:                                                    # 0 は「その出し方はしない」(世界から外す)
+                worlds.append(World(dict(assign), +left, ways, tier, reasons, factor))
             return
         player = keys[i]
         for role in sorted(domain(board, player)):
@@ -203,7 +231,7 @@ def who_is_who(board: Board, assign: dict) -> str:
 
 
 def pattern_table(board: Board, worlds: list[World]) -> list[dict]:
-    """(段階, 名乗った人ごとの種類, 理由)ごとの、世界の数。段階の高い順。"""
+    """(段階, 名乗った人ごとの種類, 理由)ごとの、世界の数と、見込み(重みの割合)。段階の高い順。"""
     rows: dict[tuple, dict] = {}
     for w in worlds:
         key = (w.tier, who_is_who(board, w.assign), w.reasons)
@@ -211,7 +239,28 @@ def pattern_table(board: Board, worlds: list[World]) -> list[dict]:
         row["ways"] += w.count
         row["weight"] += w.weight
         row["worlds"] += 1
-    return sorted(rows.values(), key=lambda r: (-r["tier"], -r["ways"], r["who"]))
+    total = sum(r["weight"] for r in rows.values())
+    for row in rows.values():
+        row["share"] = row["weight"] / total if total else 0.0
+    return sorted(rows.values(), key=lambda r: (-r["tier"], -r["share"], -r["ways"], r["who"]))
+
+
+ROLE_SHORT = {"占い師": "占", "霊能者": "霊"}
+
+
+def type_shares(board: Board, worlds: list[World], min_tier: int = 1) -> list[tuple[str, str, dict[str, float]]]:
+    """名乗った人ごとの、真・狼・狂の見込み(重みの割合)。(役職, 名乗った人, {真, 狼, 狂})の並び。
+    重みは仮(TIER_WEIGHT・FAKE_BLACK_FIRST)なので、実戦の比率ではなく、環境の読みを数にした目安。"""
+    use = [w for w in worlds if w.tier >= min_tier]
+    total = sum(w.weight for w in use)
+    out = []
+    for role in CLAIM_ROLES:
+        for p in board.claimants(role):
+            c: Counter = Counter()
+            for w in use:
+                c["真" if w.assign[p] == role else ("狼" if w.assign[p] == "人狼" else "狂")] += w.weight
+            out.append((role, p, {k: (c[k] / total if total else 0.0) for k in TYPE_ORDER}))
+    return out
 
 
 def marginals(board: Board, worlds: list[World], min_tier: int = 1) -> dict[str, dict[str, float]]:
@@ -315,7 +364,10 @@ def board_at(record: dict, stage: int) -> Board:
         if kind == "co":
             board.claims.append((e["player"], e["role"]))
         elif kind == "result":
-            board.results.append({k: e[k] for k in ("kind", "player", "target", "color")})
+            result = {k: e[k] for k in ("kind", "player", "target", "color")}
+            # 初手: その人(その役職)の最初の結果。記録に first があれば、それを使う
+            result["first"] = e.get("first", not any(r["player"] == e["player"] and r["kind"] == e["kind"] for r in board.results))
+            board.results.append(result)
         elif kind == "executed":
             board.executed.append(e["player"])
         elif kind == "bitten":
@@ -367,7 +419,7 @@ def stage_report(record: dict, stage: int) -> str:
     for row in table:
         if row["tier"] >= 2:
             note = f"  ({'、'.join(row['reasons'])})" if row["reasons"] else ""
-            lines.append(f"  [{TIER_NAME[row['tier']]}] {row['label']}: {row['who']}  {row['ways']} 通り{note}")
+            lines.append(f"  [{TIER_NAME[row['tier']]}] {row['label']}: {row['who']}  {row['ways']} 通り・見込み {row['share'] * 100:.0f}%{note}")
     rare = [r for r in table if r["tier"] == 1]
     if rare:
         by_reason: dict[str, int] = {}
@@ -375,6 +427,12 @@ def stage_report(record: dict, stage: int) -> str:
             for reason in r["reasons"] or ("(理由なし)",):
                 by_reason[reason] = by_reason.get(reason, 0) + r["ways"]
         lines.append(f"  [まれ] {len(rare)} 種類 / {sum(r['ways'] for r in rare)} 通り。理由の内訳(重なる): " + "、".join(f"{k} {v}" for k, v in by_reason.items()))
+    shares = type_shares(board, worlds)
+    if shares and max(x.tier for x in worlds) >= 2:
+        parts = [f"{ROLE_SHORT[role]} {p}: " + "・".join(f"{k}{sh[k] * 100:.0f}%" for k in TYPE_ORDER) for role, p, sh in shares]
+        lines.append("名乗った人の種類の見込み(仮の環境の重み。目安): " + " / ".join(parts))
+    elif shares:
+        lines.append("名乗った人の種類の見込み: 定番・ありうるの世界がなく、まれだけなので、出さない")
     for tier in (3, 2, 1):
         c = confirmed(board, worlds, tier)
         if any(w.tier >= tier for w in worlds):
