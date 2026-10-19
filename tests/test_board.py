@@ -195,12 +195,15 @@ class EnvironmentTreatmentTest(unittest.TestCase):
             self.assertLess(shares_of(board, fake_black_first=0.5)["A"]["真"], first, target)
 
     def test_a_counter_black_in_3_1_is_quite_real_and_a_first_move_black_leans_real_everywhere(self):
-        """依頼者の話: 3-1 の対抗黒は結構真目(狩人が、霊護衛でなく黒を出した占いの護衛を固定するまである)。初手黒がとにかく真目多い環境。"""
+        """依頼者の話: 3-1 の対抗黒は結構真目(狩人が、霊護衛でなく黒を出した占いの護衛を固定するまである)。初手黒がとにかく真目多い環境。
+        偽が初手に黒を出す重みは、依頼者の答えで2割(FAKE_BLACK_FIRST)。このとき黒を出した側は、本物の見込みが6割台。"""
         board = self.neko("ABC", [{"player": "A", "target": "B", "color": "黒"}])
         shares = shares_of(board)
-        self.assertGreater(shares["A"]["真"], 0.7)
-        self.assertGreater(shares["A"]["真"], shares["K"]["真"] - 0.3)                 # 黒を出した占いは、霊(ほぼ本物)に近い見込みまで来る
-        self.assertGreater(shares["A"]["真"], 3 * shares["B"]["真"] - 0.01)            # 黒を出された側は、本物であることが少ない
+        self.assertGreater(shares["A"]["真"], 0.6)
+        self.assertGreater(shares["A"]["真"], 2 * shares["B"]["真"])                   # 黒を出された側は、本物であることが少ない
+        lighter = shares_of(board, fake_black_first=0.15)["A"]["真"]                   # 偽の黒を1.5割にすると、7割に届く
+        self.assertGreater(lighter, 0.68)
+        self.assertLess(lighter, 0.75)
         for seers, target in (("AB", "B"), ("AB", "E"), ("ABC", "B")):                  # 2-1 の対抗黒・グレーへの黒と、3-1 の対抗黒
             b = self.neko(seers, [{"player": "A", "target": target, "color": "黒"}])
             self.assertGreater(shares_of(b)["A"]["真"], 0.5, (seers, target))
@@ -286,6 +289,37 @@ class ElevenAMemoTest(unittest.TestCase):
             self.assertAlmostEqual(s[player]["真"], real, msg=player)
             self.assertAlmostEqual(s[player]["狂"], mad, msg=player)
             self.assertAlmostEqual(s[player]["狼"], wolf, msg=player)
+
+    def test_the_white_patterns_match_the_memo(self):
+        """メモ 1-3: 真狂狼-真に固定したときの、白の出し方ごとの、真・狂・狼の見込み(%)。出し方は、A・B・C の順に、白を出した相手。"""
+        players = "ABCDEFGHIJ"
+        cases = {
+            "相互白(A→B、B→A、C→グレー)": ([("A", "B"), ("B", "A"), ("C", "E")],
+                                         {"A": (27.27, 50.00, 22.73), "B": (27.27, 50.00, 22.73), "C": (45.45, 0.00, 54.55)}),
+            "一方向の鎖(A→B、B→C、C→グレー)": ([("A", "B"), ("B", "C"), ("C", "E")],
+                                         {"A": (27.27, 22.73, 50.00), "B": (27.27, 50.00, 22.73), "C": (45.45, 27.27, 27.27)}),
+            "グレー白2つと霊への白(A→グレー、B→グレー、C→霊)": ([("A", "E"), ("B", "F"), ("C", "D")],
+                                         {"A": (31.25, 34.38, 34.38), "B": (31.25, 34.38, 34.38), "C": (37.50, 31.25, 31.25)}),
+            "A→B、B→グレー、C→霊": ([("A", "B"), ("B", "F"), ("C", "D")],
+                                         {"A": (21.43, 39.29, 39.29), "B": (35.71, 42.86, 21.43), "C": (42.86, 17.86, 39.29)}),
+        }
+        for name, (arrows, expected) in cases.items():
+            board = claim_board(ROLES_11A, players, "ABC", "D", [{"player": p, "target": t, "color": "白"} for p, t in arrows])
+            worlds = [w for w in enumerate_worlds(board, fake_black_first=0.0) if pattern_label(board, w.assign) == self.LABELS[3]]
+            shares = shares_of(board, worlds)
+            for player, (real, mad, wolf) in expected.items():
+                for kind, expect in (("真", real), ("狂", mad), ("狼", wolf)):                  # メモの値は、小数第2位までの丸め
+                    self.assertAlmostEqual(shares[player][kind] * 100, expect, delta=0.006, msg=f"{name} {player} {kind}")
+
+    def test_a_white_on_the_medium_leans_real_because_a_white_on_grey_is_slightly_fake(self):
+        """メモ 1-3: 「霊に白=真目が高い」。理由は、グレー白が少し偽寄りだから(本物はグレーで人狼を引くと黒になる)。"""
+        players = "ABCDEFGHIJ"
+        board = claim_board(ROLES_11A, players, "ABC", "D", [
+            {"player": "A", "target": "E", "color": "白"}, {"player": "B", "target": "F", "color": "白"}, {"player": "C", "target": "D", "color": "白"}])
+        worlds = [w for w in enumerate_worlds(board, fake_black_first=0.0) if pattern_label(board, w.assign) == self.LABELS[3]]
+        shares = shares_of(board, worlds)
+        self.assertGreater(shares["C"]["真"], shares["A"]["真"])
+        self.assertAlmostEqual(shares["A"]["真"], shares["B"]["真"])
 
     def test_a_mutually_white_pair_always_has_a_madman(self):
         players = "ABCDEFGHIJ"
