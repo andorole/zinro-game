@@ -1,0 +1,17 @@
+{
+  "id": "log16",
+  "note": "log16(占い入りの6A)の、公開された情報だけの盤面の記録。名前は匿名。seq は取り込み後のイベント番号。truth は答え合わせ用で、盤面の計算には使わない。霊能者はいない。",
+  "players": ["A", "C", "D", "E", "F"],
+  "roles": {"人狼": 1, "占い師": 1, "村人": 3},
+  "truth": {"A": "人狼", "C": "村人", "D": "占い師", "E": "村人", "F": "村人"},
+  "stages": [
+    {"name": "昼1(名乗りのあと、投票の前)"},
+    {"name": "昼2の朝(昼1の処刑・夜の襲撃のあと)"}
+  ],
+  "events": [
+    {"stage": 0, "t": "co", "player": "D", "role": "占い師", "seq": 23},
+    {"stage": 0, "t": "result", "kind": "占い", "player": "D", "target": "C", "color": "白", "seq": 23},
+    {"stage": 1, "t": "executed", "player": "E", "day": 1},
+    {"stage": 1, "t": "bitten", "player": "D", "night": 1}
+  ]
+}

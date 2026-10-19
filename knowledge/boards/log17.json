@@ -1,0 +1,29 @@
+{
+  "id": "log17",
+  "note": "log17(12A猫)の、公開された情報だけの盤面の記録。名前は匿名。seq は取り込み後のイベント番号。truth は答え合わせ用で、盤面の計算には使わない。",
+  "players": ["C", "D", "E", "F", "G", "H", "I", "J", "K", "L", "M"],
+  "roles": {"人狼": 3, "狂人": 1, "占い師": 1, "霊能者": 1, "狩人": 1, "猫又": 1, "村人": 3},
+  "truth": {"C": "狩人", "D": "人狼", "E": "猫又", "F": "人狼", "G": "村人", "H": "村人", "I": "村人", "J": "霊能者", "K": "狂人", "L": "占い師", "M": "人狼"},
+  "stages": [
+    {"name": "昼1(名乗りのあと、投票の前)"},
+    {"name": "昼2の朝(昼1の処刑・夜の襲撃・霊能の報告のあと)"},
+    {"name": "昼2(偽の占いが仲間に黒を出したあと)"},
+    {"name": "昼3の朝(昼2の処刑・夜の襲撃・霊能の報告のあと)"},
+    {"name": "昼3(最後の人狼が狼COしたあと)"}
+  ],
+  "events": [
+    {"stage": 0, "t": "co", "player": "D", "role": "占い師", "seq": 53},
+    {"stage": 0, "t": "result", "kind": "占い", "player": "D", "target": "H", "color": "白", "seq": 53},
+    {"stage": 0, "t": "co", "player": "J", "role": "霊能者", "seq": 59},
+    {"stage": 0, "t": "co", "player": "L", "role": "占い師", "seq": 61},
+    {"stage": 0, "t": "result", "kind": "占い", "player": "L", "target": "M", "color": "黒", "seq": 61},
+    {"stage": 1, "t": "executed", "player": "M", "day": 1},
+    {"stage": 1, "t": "bitten", "player": "L", "night": 1},
+    {"stage": 1, "t": "result", "kind": "霊能", "player": "J", "target": "M", "color": "黒", "seq": 224},
+    {"stage": 2, "t": "result", "kind": "占い", "player": "D", "target": "F", "color": "黒", "seq": 225},
+    {"stage": 3, "t": "executed", "player": "D", "day": 2},
+    {"stage": 3, "t": "bitten", "player": "C", "night": 2},
+    {"stage": 3, "t": "result", "kind": "霊能", "player": "J", "target": "D", "color": "黒", "seq": 361},
+    {"stage": 4, "t": "wolfco", "player": "F", "seq": 442}
+  ]
+}

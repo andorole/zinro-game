@@ -4,6 +4,8 @@
       logs/private/<id>.players.json の plain_words に入り、check の実名混入の検査から外れる。
   python -m zinro_learn stats logs/normalized/<id>.json [...]
   python -m zinro_learn timeline logs/normalized/<id>.json [...]   # 役職、夜の行動と通知、死亡、人狼の夜チャットを、夜と昼の順に並べる
+  python -m zinro_learn board knowledge/boards/<id>.json [--stage N]   # 盤面整理: 公開された情報に合う役職の割り当て(真・狼・狂)、確定した黒白、縄
+  python -m zinro_learn board --patterns   # 名乗りの数(占い-霊)ごとの、名乗りの種類の組み合わせと、定番／ありうる／まれ
   python -m zinro_learn sync     # 発言例から、ガイドの「発言の型」の表を作り直す
   python -m zinro_learn check    # knowledge/ の整合性を調べる(問題があれば終了コード 1)
   python -m zinro_learn structure  # 連投と返信の型(1発言に1返信ではない構造)を数える
@@ -15,6 +17,7 @@ import json
 from pathlib import Path
 
 from .analyze import format_stats, speech_stats
+from .board import load_record, patterns_text, record_report, stage_report
 from .check import check, load_examples, load_games, sync_table
 from .parse import anonymize, build_mapping, parse_game
 from .roles import format_timeline
@@ -79,6 +82,16 @@ def timeline(args) -> None:
         print(format_timeline(game) + "\n")
 
 
+def board(args) -> None:
+    if args.patterns:
+        print(patterns_text())
+        return
+    if not args.record:
+        raise SystemExit("盤面の記録(knowledge/boards/<id>.json)か --patterns を指定してください")
+    record = load_record(args.record)
+    print(stage_report(record, args.stage) if args.stage is not None else record_report(record))
+
+
 def sync(args) -> None:
     root = Path(args.root)
     path = root / "knowledge/discussion_style.md"
@@ -131,6 +144,12 @@ def main(argv=None) -> None:
     p = sub.add_parser("timeline", help="役職・夜の行動・通知・死亡・人狼の夜チャットを、夜と昼の順に表示する")
     p.add_argument("normalized", nargs="+")
     p.set_defaults(func=timeline)
+
+    p = sub.add_parser("board", help="盤面整理: 公開された情報に合う役職の割り当てと、確定した黒白、縄を出す")
+    p.add_argument("record", nargs="?", help="盤面の記録(knowledge/boards/<id>.json)")
+    p.add_argument("--stage", type=int, help="段階の番号(0から)。省略すると全部")
+    p.add_argument("--patterns", action="store_true", help="名乗りの数(占い-霊)ごとの、名乗りの種類の組み合わせ")
+    p.set_defaults(func=board)
 
     p = sub.add_parser("sync", help="発言例から、ガイドの「発言の型」の表を作り直す")
     p.add_argument("--root", default=".")
