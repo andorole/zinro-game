@@ -6,7 +6,7 @@
   python -m zinro_learn timeline logs/normalized/<id>.json [...]   # 役職、夜の行動と通知、死亡、人狼の夜チャットを、夜と昼の順に並べる
   python -m zinro_learn board knowledge/boards/<id>.json [--stage N]   # 盤面整理: 公開された情報に合う役職の割り当て(真・狼・狂)、確定した黒白、縄
   python -m zinro_learn board --patterns   # 名乗りの数(占い-霊)ごとの、名乗りの種類の組み合わせと、定番／ありうる／まれ
-  python -m zinro_learn progress --seers 3 [--result A:B:黒] [--guard medium|blacksayer] [--no-seer-results]   # 進行の比較(占いロラ・グレランなど)の、村の勝率の試算
+  python -m zinro_learn progress --seers 3 [--result A:B:黒] [--guard medium|blacksayer] [--cat off|hidden|open] [--no-seer-results]   # 進行の比較(占いロラ・グレランなど)の、村の勝率の試算
   python -m zinro_learn sync     # 発言例から、ガイドの「発言の型」の表を作り直す
   python -m zinro_learn check    # knowledge/ の整合性を調べる(問題があれば終了コード 1)
   python -m zinro_learn structure  # 連投と返信の型(1発言に1返信ではない構造)を数える
@@ -21,7 +21,7 @@ from .analyze import format_stats, speech_stats
 from .board import ROLES_12A_NEKO, Board, load_record, patterns_text, record_report, stage_report
 from .check import check, load_examples, load_games, sync_table
 from .parse import anonymize, build_mapping, parse_game
-from .progress import GUARD_NAME, compare_text, hit_rates
+from .progress import CAT_NAME, CATS, GUARD_NAME, compare_text, hit_rates
 from .roles import format_timeline
 from .structure import format_structure
 
@@ -107,9 +107,9 @@ def progress(args) -> None:
     rates = hit_rates(board)
     seers = "、".join(f"{p} {v * 100:.1f}%" for p, v in rates["占い"].items())
     title = (f"{args.seers}-1" + ("・" + "、".join(args.result) if args.result else "・結果なし") + f"・{GUARD_NAME[args.guard]}"
-             + ("・占いの夜の結果なし" if args.no_seer_results else "・占いの夜の結果あり"))
+             + ("・占いの夜の結果なし" if args.no_seer_results else "・占いの夜の結果あり") + f"・{CAT_NAME[args.cat]}")
     print(f"昼1の1本目の吊りが人狼に当たる見込み(厳密): 占いの名乗り {seers} / 灰1人 {rates['灰'] * 100:.1f}%({rates['灰の人数']}人)")
-    print(compare_text(board, title, args.n, args.seed, guard=args.guard, seer_results=not args.no_seer_results))
+    print(compare_text(board, title, args.n, args.seed, guard=args.guard, seer_results=not args.no_seer_results, cat=args.cat))
 
 
 def sync(args) -> None:
@@ -175,6 +175,7 @@ def main(argv=None) -> None:
     p.add_argument("--seers", type=int, default=3, help="占いの名乗りの人数(A から順に)")
     p.add_argument("--result", action="append", default=[], help="占いの初手の結果。例: A:B:黒(A が B に黒)。複数指定可")
     p.add_argument("--guard", choices=["medium", "blacksayer"], default=None, help="狩人の護衛: medium=霊護衛固定、blacksayer=黒出し占い護衛固定")
+    p.add_argument("--cat", choices=CATS, default="hidden", help="猫又の扱い: off=力を数えない、hidden=隠れている、open=名乗っていて吊らず噛まない")
     p.add_argument("--no-seer-results", action="store_true", help="占いの2日目以降の結果を入れない(最初の試算と同じ)")
     p.add_argument("--n", type=int, default=20000, help="試算の回数")
     p.add_argument("--seed", type=int, default=1)

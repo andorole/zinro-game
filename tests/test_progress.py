@@ -4,8 +4,8 @@ from unittest import mock
 
 from zinro_learn.board import FAKE_BLACK_FIRST, Board, ROLES_12A_NEKO
 from zinro_learn.progress import (
-    BITES, ENCLOSE_NEXT, FAKE_BLACK_LATER, GUARDS, POLICIES, compare, compare_text, hit_rates, night_result, play, prepare,
-    sample_world, win_rate,
+    BITES, ENCLOSE_NEXT, FAKE_BLACK_LATER, GUARDS, OPEN_CAT_BITE, POLICIES, compare, compare_text, hit_rates, night_result,
+    play, prepare, sample_world, win_rate,
 )
 
 
@@ -204,6 +204,68 @@ class SeerNightTest(unittest.TestCase):
         self.assertEqual(night_result("人狼", "村人", NeverBlack()), "白")
 
 
+class CatTest(unittest.TestCase):
+    """猫又(依頼者の説明): 吊られたら生存者からランダムに1人、噛まれたら人狼のうちランダムに1人を道連れにする。"""
+
+    def test_a_hanged_cat_takes_a_random_survivor_along(self):
+        prep = prepare(Board(players=list("ABCDEF"), roles={"人狼": 1, "猫又": 1, "村人": 4}))
+        roles = {"A": "猫又", "B": "村人", "C": "村人", "D": "村人", "E": "村人", "F": "人狼"}
+        trace: list = []
+        play(prep, roles, "grey", "grey", FirstRng(), trace, seer_results=False)
+        self.assertEqual(trace[:2], [("hang", "A", "人間"), ("takealong", "B", "人間")])             # 村道連れ
+        roles = {"A": "猫又", "B": "人狼", "C": "村人", "D": "村人", "E": "村人", "F": "村人"}
+        trace = []
+        self.assertTrue(play(prep, roles, "grey", "grey", FirstRng(), trace, seer_results=False))
+        self.assertEqual(trace, [("hang", "A", "人間"), ("takealong", "B", "人狼")])                   # 人狼道連れ: 人狼が全滅して、村の勝ち
+        trace = []
+        play(prep, roles, "grey", "grey", FirstRng(), trace, seer_results=False, cat="off")         # 力を数えなければ、道連れはない
+        self.assertNotIn("takealong", [t[0] for t in trace])
+
+    def test_a_bitten_cat_takes_a_wolf_along(self):
+        prep = prepare(Board(players=list("ABCDEF"), roles={"人狼": 2, "猫又": 1, "村人": 3}))
+        roles = {"A": "村人", "B": "猫又", "C": "村人", "D": "村人", "E": "人狼", "F": "人狼"}
+        trace: list = []
+        play(prep, roles, "grey", "grey", FirstRng(), trace, seer_results=False)
+        self.assertEqual([t[:2] for t in trace[:3]], [("hang", "A"), ("bite", "B"), ("takealong", "E")])
+
+    def test_an_open_cat_is_neither_hanged_nor_bitten_while_other_candidates_remain(self):
+        prep = prepare(Board(players=list("ABCDEF"), roles={"人狼": 1, "猫又": 1, "村人": 4}))
+        roles = {"A": "猫又", "B": "村人", "C": "村人", "D": "村人", "E": "村人", "F": "人狼"}
+        trace: list = []
+        play(prep, roles, "grey", "grey", FirstRng(), trace, seer_results=False, cat="open")
+        self.assertEqual(trace[0][:2], ("hang", "B"))                       # 先頭の A(猫又)でなく、B
+        self.assertEqual(trace[1][:2], ("bite", "C"))                       # 噛みも、A を避ける
+        with self.assertRaises(ValueError):
+            play(prep, roles, "grey", "grey", FirstRng(), [], cat="???")
+
+    def test_wolves_sometimes_bite_an_open_cat_when_two_wolves_face_six_at_night(self):
+        """依頼者の話: 人狼2人・夜に6人なら、猫又を噛めば一気に最終日に行ける。LW は絶対に噛めない。最近はあまり噛まない。"""
+        prep = prepare(Board(players=list("ABCDEFG"), roles={"人狼": 2, "猫又": 1, "村人": 4}))
+        roles = {"A": "村人", "B": "猫又", "C": "村人", "D": "村人", "E": "村人", "F": "人狼", "G": "人狼"}
+        trace: list = []
+        play(prep, roles, "grey", "grey", FirstRng(), trace, seer_results=False, cat="open")           # FirstRng の random() は 0.0
+        self.assertEqual([t[:2] for t in trace[:3]], [("hang", "A"), ("bite", "B"), ("takealong", "F")])
+        trace = []
+        with mock.patch("zinro_learn.progress.OPEN_CAT_BITE", 0.0):                                    # 噛まないなら、先頭の灰
+            play(prep, roles, "grey", "grey", FirstRng(), trace, seer_results=False, cat="open")
+        self.assertEqual([t[:2] for t in trace[:2]], [("hang", "A"), ("bite", "C")])
+        # 人狼が1人(LW)のときは、噛まない
+        lw = prepare(Board(players=list("ABCDEFG"), roles={"人狼": 1, "猫又": 1, "村人": 5}))
+        roles = {"A": "村人", "B": "猫又", "C": "村人", "D": "村人", "E": "村人", "F": "村人", "G": "人狼"}
+        trace = []
+        play(lw, roles, "grey", "grey", FirstRng(), trace, seer_results=False, cat="open")
+        self.assertEqual([t[:2] for t in trace[:2]], [("hang", "A"), ("bite", "C")])
+        self.assertLess(OPEN_CAT_BITE, 0.5)
+
+    def test_the_cats_takealong_lets_grey_hangs_reach_wolves_among_the_seers_and_an_open_cat_helps(self):
+        board = neko("ABC")
+        self.assertLess(win_rate(board, "grey", "claim", n=6000, seed=5, cat="off")["rate"], 0.02)
+        self.assertGreater(win_rate(board, "grey", "claim", n=6000, seed=5, cat="hidden")["rate"], 0.04)   # 道連れで、名乗りの中の狼にも当たる
+        hidden = win_rate(board, "roll_stop", "grey", n=8000, seed=5, cat="hidden")["rate"]
+        opened = win_rate(board, "roll_stop", "grey", n=8000, seed=5, cat="open")["rate"]
+        self.assertGreater(opened, hidden + 0.05)                           # 対抗がいるとき、猫又は露出した方がよい(依頼者の話。この計算の向き)
+
+
 class ComparisonTest(unittest.TestCase):
     def test_the_first_hang_hits_a_seer_more_than_a_grey_in_3_1(self):
         """昼1の1本目: 3-1 では、占いの名乗り1人が人狼の見込み 5/12、灰1人が 1/4(真狂狼 7.5 : 真狼狼 2.5 の重み)。霊能は本物。"""
@@ -223,7 +285,7 @@ class ComparisonTest(unittest.TestCase):
 
     def test_the_seer_roller_beats_grey_when_the_wolves_sit_among_the_seers(self):
         board = neko("ABC")
-        table = compare(board, n=6000, seed=4)
+        table = compare(board, n=6000, seed=4, cat="off")                   # 猫又の道連れは、別に確かめる
         grey, keep, stop = (table[("grey", p)]["rate"] for p in ("grey", "roll_keep", "roll_stop"))
         self.assertGreater(keep, grey + 0.1)
         self.assertGreater(stop, grey + 0.15)
