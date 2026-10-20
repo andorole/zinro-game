@@ -19,6 +19,8 @@
 - なし: 護衛を入れない。
 - 霊能: 霊能を護衛しつづける(霊護衛固定)。
 - 黒出し: 結果で黒を出した占いの名乗りを護衛しつづける(黒出し占い護衛固定)。
+- 環境: 初手で黒が出ていれば、黒を出した占いを護衛する。なければ、真目の占いか霊能(依頼者。霊能を先にする。真目の占いは、狼の見込みが
+  いちばん低い名乗り)。守る相手が死んでいたら、次の候補を守る。
 
 占いの夜の結果(2日目以降。seer_results が真のとき):
 - 占いの名乗りで生きている人は、毎晩1人を占い、翌朝、生きていれば結果を出す(夜に噛まれた占いは、結果を出せない)。相手は、灰から無作為。
@@ -47,7 +49,8 @@
 同数のときの票(PP・RPP。依頼者の説明。rpp が真のとき):
 - 人外側(人狼と狂人)の人数が、村(人外側でない人)の人数以上になると、人外側が同じ村人1人に票を入れる。人数が上回れば、必ず通る(PP)。
   同数なら、村が人外側の1人にまとまっても同数で、抽選になる(RPP。「同数なら抽選」の部屋の決まり)。村は、人外側の1人(だれが狂人かは
-  分からないので、無作為)にまとまる、と置く。半々で、人外側が選んだ村人が吊られるか、村が選んだ人外側の1人が吊られる。
+  分からないので、無作為。村が黒と信じている人が人外側にいれば、その人)にまとまる、と置く。半々で、人外側が選んだ村人が吊られるか、
+  村が選んだ人外側の1人が吊られる。
   人狼3・狂人1・村4(昼2。真猫を吊って道連れが村に当たった形)では、村の勝ちは 1/32(約 3%)になる(依頼者: ほぼ負け)。
 - 人外側に狂人がいないと、人数が同数以上の時点で人狼の勝ちなので、この操作は起きない。
 
@@ -77,8 +80,8 @@ POLICIES = ("grey", "roll_keep", "roll_stop", "roll")
 POLICY_NAME = {"grey": "グレー", "roll_keep": "占いロラ", "roll_stop": "黒スト", "roll": "ロラ完遂"}
 BITES = ("grey", "claim")
 BITE_NAME = {"grey": "灰を噛む", "claim": "名乗りを噛む"}
-GUARDS = (None, "medium", "blacksayer")
-GUARD_NAME = {None: "護衛なし", "medium": "霊護衛固定", "blacksayer": "黒出し占い護衛固定"}
+GUARDS = (None, "medium", "blacksayer", "env")
+GUARD_NAME = {None: "護衛なし", "medium": "霊護衛固定", "blacksayer": "黒出し占い護衛固定", "env": "環境の護衛"}
 
 
 @dataclass
@@ -156,7 +159,9 @@ def play(prep: Prepared, roles: dict[str, str], policy: str, bite: str, rng: ran
         raise ValueError(f"知らない猫又の扱い: {cat}")
     board = prep.board
     black_sayer = next((r["player"] for r in board.results if r["kind"] == "占い" and r["color"] == "黒"), None)
-    guarded = {None: None, "medium": prep.medium, "blacksayer": black_sayer}[guard]
+    if guard not in GUARDS:
+        raise ValueError(f"知らない護衛: {guard}")
+    guarded = {None: None, "medium": prep.medium, "blacksayer": black_sayer, "env": None}[guard]
     claimants = set(prep.seers) | ({prep.medium} if prep.medium else set())
     alive = set(board.players)
     for p in board.dead:                                  # 盤面にすでにある死者
@@ -239,7 +244,7 @@ def play(prep: Prepared, roles: dict[str, str], policy: str, bite: str, rng: ran
                 if trace is not None:
                     trace.append(("pp", pick, ""))
             else:
-                against = rng.choice(side)
+                against = next((p for p in alive_blacks if p in side), None) or rng.choice(side)     # 村は、黒と信じる人が人外側にいればその人
                 target = pick if rng.random() < 0.5 else against
                 if trace is not None:
                     trace.append(("rpp", pick, against))
@@ -292,6 +297,8 @@ def play(prep: Prepared, roles: dict[str, str], policy: str, bite: str, rng: ran
         if exposed & set(nonwolf) and wolves_now == 2 and len(alive) == 6 and rng.random() < OPEN_CAT_BITE:
             pool = sorted(exposed & set(nonwolf))                          # 人狼2人・夜に6人: 猫又を噛めば、一気に最終日に行ける
         victim = rng.choice(pool)
+        if guard == "env":                                # 環境の護衛: 黒を出した占い、なければ霊能、なければ真目の占い(生きている人)
+            guarded = next((p for p in (black_sayer, prep.medium, kept) if p is not None and p in alive), None)
         if guarded is not None and victim == guarded and any(roles[p] == "狩人" for p in alive):
             if trace is not None:
                 trace.append(("guard", victim, ""))               # 護衛が成功して、だれも死なない

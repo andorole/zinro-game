@@ -111,6 +111,53 @@ class EngineTest(unittest.TestCase):
         self.assertEqual(trace[1], ("bite", "C", ""))
 
 
+class EnvGuardTest(unittest.TestCase):
+    """環境の護衛(依頼者): 初手で黒が出ていれば、黒を出した占い。なければ、真目の占いか霊能。"""
+
+    def _board(self, results=()):
+        board = Board(players=list("ABCDEFGH"), roles={"人狼": 2, "占い師": 1, "霊能者": 1, "狩人": 1, "村人": 3}, rco=True)
+        board.claims = [("A", "占い師"), ("B", "占い師"), ("C", "霊能者")]
+        board.results = [dict(kind="占い", first=True, **r) for r in results]
+        roles = {"A": "占い師", "B": "人狼", "C": "霊能者", "D": "村人", "E": "人狼", "F": "狩人", "G": "村人", "H": "村人"}
+        return prepare(board), roles
+
+    def test_the_black_sayer_is_guarded_when_a_black_was_given(self):
+        prep, roles = self._board([{"player": "A", "target": "E", "color": "黒"}])
+        trace: list = []
+        play(prep, roles, "grey", "claim", FirstRng(), trace, seer_results=False, guard="env")         # 黒先 E を吊る。狼は名乗りの先頭 A を噛む
+        self.assertEqual(trace[0], ("hang", "E", "人狼"))
+        self.assertEqual(trace[1], ("guard", "A", ""))
+        trace = []
+        play(prep, roles, "grey", "claim", FirstRng(), trace, seer_results=False, guard="medium")      # 霊護衛固定なら、A は守れずに噛まれる
+        self.assertEqual(trace[1][:2], ("bite", "A"))
+
+    def test_the_medium_is_guarded_when_no_black_was_given(self):
+        board = Board(players=list("ABCDEF"), roles={"人狼": 1, "霊能者": 1, "狩人": 1, "村人": 3}, rco=True)
+        board.claims = [("C", "霊能者")]
+        prep = prepare(board)
+        roles = {"A": "村人", "B": "村人", "C": "霊能者", "D": "村人", "E": "狩人", "F": "人狼"}
+        trace: list = []
+        play(prep, roles, "grey", "claim", FirstRng(), trace, guard="env")
+        self.assertEqual(trace[1], ("guard", "C", ""))
+
+    def test_a_dead_black_sayer_is_replaced_by_the_medium_and_unknown_guards_are_refused(self):
+        board = Board(players=list("ABCDEFGH"), roles={"人狼": 2, "占い師": 1, "霊能者": 1, "狩人": 1, "村人": 3}, rco=True)
+        board.claims = [("B", "占い師"), ("C", "占い師"), ("A", "霊能者")]
+        board.results = [dict(kind="占い", first=True, player="B", target="C", color="黒"),
+                         dict(kind="占い", first=True, player="C", target="B", color="黒")]
+        prep = prepare(board)
+        prep.wolf_prob.update({"B": 1.0, "C": 0.0})                         # 昼1に、黒を出した B(偽)を吊る
+        roles = {"A": "霊能者", "B": "人狼", "C": "占い師", "D": "村人", "E": "人狼", "F": "狩人", "G": "村人", "H": "村人"}
+        trace: list = []
+        play(prep, roles, "grey", "claim", FirstRng(), trace, seer_results=False, guard="env")
+        self.assertEqual(trace[:2], [("hang", "B", "人狼"), ("guard", "A", "")])      # 黒を出した B は死んだので、霊能 A を守る
+        trace = []
+        play(prep, roles, "grey", "claim", FirstRng(), trace, seer_results=False, guard="blacksayer")
+        self.assertEqual(trace[1][:2], ("bite", "A"))                       # 固定の護衛は、死んだ相手を守りつづけて、A を守れない
+        with self.assertRaises(ValueError):
+            play(prep, roles, "grey", "claim", FirstRng(), [], guard="???")
+
+
 class SeerNightTest(unittest.TestCase):
     """占いの2日目以降の結果(夜に占い、翌朝に出す。村は、本物と見る占いの結果だけを信じる)。"""
 
@@ -375,6 +422,16 @@ class RppTest(unittest.TestCase):
         self.assertFalse(play(prep, roles, "grey", "grey", LateRng(), trace, seer_results=False))     # 抽選でなく、必ず通る
         self.assertEqual(trace, [("pp", "E", ""), ("hang", "E", "人間")])
 
+    def test_the_village_votes_for_the_believed_black_when_it_is_in_the_wolf_side(self):
+        board = Board(players=list("ABCDEFGH"), roles={"人狼": 3, "狂人": 1, "占い師": 1, "村人": 3}, rco=True)
+        board.claims = [("A", "占い師")]
+        board.results = [dict(kind="占い", first=True, player="A", target="D", color="黒")]
+        prep = prepare(board)
+        roles = {"A": "占い師", "B": "人狼", "C": "人狼", "D": "人狼", "E": "狂人", "F": "村人", "G": "村人", "H": "村人"}
+        trace: list = []
+        play(prep, roles, "grey", "grey", LateRng(), trace, seer_results=False)
+        self.assertEqual(trace[:2], [("rpp", "A", "D"), ("hang", "D", "人狼")])      # 先頭の B でなく、黒と信じる D にまとまる(抽選で当たれば吊られる)
+
     def test_rpp_off_leaves_the_vote_to_the_village(self):
         prep, roles = self._eight()
         trace: list = []
@@ -441,7 +498,7 @@ class ComparisonTest(unittest.TestCase):
         text = compare_text(board, "3-1 対抗黒", n=500, seed=1)
         for word in ("占いロラ", "黒スト", "ロラ完遂", "グレー", "灰を噛む", "名乗りを噛む", "構成の割合"):
             self.assertIn(word, text)
-        self.assertEqual(set(GUARDS), {None, "medium", "blacksayer"})
+        self.assertEqual(set(GUARDS), {None, "medium", "blacksayer", "env"})
         self.assertEqual(set(BITES), {"grey", "claim"})
 
 
