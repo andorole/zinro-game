@@ -22,8 +22,11 @@
 
 占いの夜の結果(2日目以降。seer_results が真のとき):
 - 占いの名乗りで生きている人は、毎晩1人を占い、翌朝、生きていれば結果を出す(夜に噛まれた占いは、結果を出せない)。相手は、灰から無作為。
-- 本物は正しい色を出す。偽の人狼は、仲間に白を出し、人狼でない人には、黒を出す重み FAKE_BLACK_FIRST(白を出す場合を 1)で出す。
-  偽の狂人は、相手が何であっても、同じ重みで黒を出す。二手目以降も、初手と同じ癖にした(仮)。
+- 本物は正しい色を出す。偽の人狼は、仲間に白を出し(身内切りは、戦術として強くないので、しない)、人狼でない人には、黒を出す
+  重み FAKE_BLACK_LATER(白を出す場合を 1)で出す。偽の狂人は、相手が何であっても、同じ重みで黒を出す。
+  依頼者の話「偽の二手目は、だいたい白」に合わせて、FAKE_BLACK_LATER は、初手の FAKE_BLACK_FIRST より小さい(仮)。
+- 偽の人狼は、初手や次手で、仲間を囲う(仲間に白を出す)のが基本(依頼者の話)。次手(夜1の結果)では、灰の仲間の人狼がいれば、
+  ENCLOSE_NEXT の割合で、その仲間に白を出す(仮)。初手の囲いは、盤面の重みには入れていない。
 - 村は、「本物と見る占い」(狼の見込みがいちばん低い名乗り)の結果だけを信じる。黒は黒先として吊り、白を貰った人は、灰の無作為の吊りから外す。
   ほかの占いの結果は使わない。本物と見る占いが、実は偽なら、村はその嘘の結果に従う。
 
@@ -38,8 +41,10 @@ from collections import defaultdict
 from dataclasses import dataclass
 from itertools import accumulate
 
-from .board import FAKE_BLACK_FIRST, Board, World, enumerate_worlds, marginals, pattern_label
+from .board import Board, World, enumerate_worlds, marginals, pattern_label
 
+FAKE_BLACK_LATER = 0.05          # 仮。偽の占いが、2日目以降の夜に、人狼でない人へ黒を出す重み(白を出す場合を 1)。初手(0.15)より小さい
+ENCLOSE_NEXT = 0.5               # 仮。偽の人狼が、次手(夜1の結果)で、灰の仲間に白を出す(囲う)割合
 POLICIES = ("grey", "roll_keep", "roll_stop", "roll")
 POLICY_NAME = {"grey": "グレー", "roll_keep": "占いロラ", "roll_stop": "黒スト", "roll": "ロラ完遂"}
 BITES = ("grey", "claim")
@@ -99,7 +104,7 @@ def night_result(seer_role: str, target_role: str, rng: random.Random) -> str:
         return "黒" if target_role == "人狼" else "白"
     if seer_role == "人狼" and target_role == "人狼":
         return "白"
-    black = FAKE_BLACK_FIRST / (1 + FAKE_BLACK_FIRST)        # 黒:白 = FAKE_BLACK_FIRST : 1 の割合
+    black = FAKE_BLACK_LATER / (1 + FAKE_BLACK_LATER)        # 黒:白 = FAKE_BLACK_LATER : 1 の割合
     return "黒" if rng.random() < black else "白"
 
 
@@ -119,6 +124,7 @@ def play(prep: Prepared, roles: dict[str, str], policy: str, bite: str, rng: ran
     colors: dict[str, str] = {}                           # 霊能が報告した、吊られた人の色(公開)
     unreported: list[str] = []
     divined: dict[str, set[str]] = {s: set() for s in prep.seers}
+    night = 0
     reports: list[tuple[str, str, str]] = []              # 夜に出た結果(占い, 相手, 色)。翌朝、占いが生きていれば出る
     safe: set[str] = set()                                # 本物と見る占いに白を出された人
 
@@ -205,13 +211,19 @@ def play(prep: Prepared, roles: dict[str, str], policy: str, bite: str, rng: ran
             alive.discard(victim)
             if trace is not None:
                 trace.append(("bite", victim, ""))
+        night += 1
         if seer_results:                                          # 夜に、生きている占いの名乗りが占う
             for seer in prep.seers:
                 if seer not in alive:
                     continue
                 options = [p for p in sorted(alive) if p != seer and p not in divined[seer]]
                 options = [p for p in options if p not in claimants] or options
-                if options:
+                mates = [p for p in options if roles[p] == "人狼"]
+                if night == 1 and roles[seer] == "人狼" and mates and rng.random() < ENCLOSE_NEXT:
+                    t = rng.choice(mates)                          # 次手で、灰の仲間を囲う
+                    divined[seer].add(t)
+                    reports.append((seer, t, "白"))
+                elif options:
                     t = rng.choice(options)
                     divined[seer].add(t)
                     reports.append((seer, t, night_result(roles[seer], roles[t], rng)))

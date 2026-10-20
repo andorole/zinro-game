@@ -1,9 +1,11 @@
 import random
 import unittest
+from unittest import mock
 
-from zinro_learn.board import Board, ROLES_12A_NEKO
+from zinro_learn.board import FAKE_BLACK_FIRST, Board, ROLES_12A_NEKO
 from zinro_learn.progress import (
-    BITES, GUARDS, POLICIES, compare, compare_text, hit_rates, night_result, play, prepare, sample_world, win_rate,
+    BITES, ENCLOSE_NEXT, FAKE_BLACK_LATER, GUARDS, POLICIES, compare, compare_text, hit_rates, night_result, play, prepare,
+    sample_world, win_rate,
 )
 
 
@@ -156,6 +158,31 @@ class SeerNightTest(unittest.TestCase):
         self.assertEqual(trace[2], ("result", "A", "E黒"))                  # 偽の人狼は、人狼でない E に黒(FirstRng は、いつも黒を出す側に倒れる)
         self.assertEqual(trace[3], ("result", "B", "E白"))                  # 本物の白は、信じられない
         self.assertEqual(trace[4], ("hang", "E", "人間"))                   # 村は、偽の黒に従って、人間を吊る
+
+    def test_a_fake_wolf_seer_encloses_a_teammate_on_the_next_night(self):
+        """依頼者の話: 偽は、初手や次手で、仲間を囲うのが基本(身内切りは、戦術として強くない)。"""
+        board = Board(players=list("ABCDEFG"), roles={"人狼": 2, "占い師": 1, "村人": 4}, rco=True)
+        board.claims = [("A", "占い師"), ("B", "占い師")]
+        prep = prepare(board)
+        prep.wolf_prob.update({"A": 0.0, "B": 1.0})                         # 村は A を本物と見る(実際は A が人狼)
+        roles = {"A": "人狼", "B": "占い師", "C": "村人", "D": "村人", "E": "村人", "F": "村人", "G": "人狼"}
+        trace: list = []
+        play(prep, roles, "grey", "grey", FirstRng(), trace)
+        self.assertEqual([t[:2] for t in trace[:2]], [("hang", "C"), ("bite", "D")])
+        self.assertIn(("result", "A", "G白"), trace)                         # 灰の仲間 G に白(囲い)
+        trace = []
+        with mock.patch("zinro_learn.progress.ENCLOSE_NEXT", 0.0):           # 囲わなければ、先頭の灰に、偽の黒
+            play(prep, roles, "grey", "grey", FirstRng(), trace)
+        self.assertIn(("result", "A", "E黒"), trace)
+        self.assertGreater(ENCLOSE_NEXT, 0)
+
+    def test_a_fakes_later_nights_are_mostly_white(self):
+        """依頼者の話: 偽の二手目は、だいたい白。2日目以降の偽の黒の重みは、初手より小さい。"""
+        self.assertLess(FAKE_BLACK_LATER, FAKE_BLACK_FIRST)
+        rng = random.Random(3)
+        blacks = sum(1 for _ in range(40000) if night_result("人狼", "村人", rng) == "黒")
+        self.assertAlmostEqual(blacks / 40000, FAKE_BLACK_LATER / (1 + FAKE_BLACK_LATER), delta=0.006)
+        self.assertLess(blacks / 40000, 0.1)
 
     def test_using_the_real_seers_nights_raises_the_win_rate(self):
         board = Board(players=list("ABCDEF"), roles={"人狼": 1, "占い師": 1, "村人": 4}, rco=True)
