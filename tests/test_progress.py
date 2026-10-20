@@ -4,8 +4,8 @@ from unittest import mock
 
 from zinro_learn.board import FAKE_BLACK_FIRST, Board, ROLES_12A_NEKO
 from zinro_learn.progress import (
-    BITES, ENCLOSE_NEXT, FAKE_BLACK_LATER, GUARDS, OPEN_CAT_BITE, POLICIES, compare, compare_text, hit_rates, night_result,
-    play, prepare, sample_world, win_rate,
+    BITES, CATS, COUNTER_CAT, COUNTER_CAT_WOLF, ENCLOSE_NEXT, FAKE_BLACK_LATER, FAKE_CAT_FIRST, GUARDS, OPEN_CAT_BITE, POLICIES,
+    compare, compare_text, counter_cat, hit_rates, night_result, play, prepare, sample_world, win_rate,
 )
 
 
@@ -264,6 +264,146 @@ class CatTest(unittest.TestCase):
         hidden = win_rate(board, "roll_stop", "grey", n=8000, seed=5, cat="hidden")["rate"]
         opened = win_rate(board, "roll_stop", "grey", n=8000, seed=5, cat="open")["rate"]
         self.assertGreater(opened, hidden + 0.05)                           # 対抗がいるとき、猫又は露出した方がよい(依頼者の話。この計算の向き)
+
+
+class LateRng(FirstRng):
+    """先頭を選ぶが、random() はいつも大きい値を返す(確率で決まる分かれ道で、起きない側に倒れる)。"""
+
+    def random(self):
+        return 0.99
+
+
+class CounterCatTest(unittest.TestCase):
+    """猫COに対抗猫が出たら、猫吊りが基本(依頼者)。黒を出された方、なければ先に出た方を吊る。道連れが起きたら本物、起きなければ偽が確定して、残る猫は放置。"""
+
+    def _ten(self):
+        # A が真猫。G・H が人狼(G が対抗猫になる)、I が狂人
+        board = Board(players=list("ABCDEFGHIJ"), roles={"人狼": 2, "狂人": 1, "猫又": 1, "村人": 6})
+        roles = {"A": "猫又", "B": "村人", "C": "村人", "D": "村人", "E": "村人", "F": "村人", "G": "人狼", "H": "人狼", "I": "狂人", "J": "村人"}
+        return prepare(board), roles
+
+    def test_the_earlier_cat_is_hanged_and_no_takealong_confirms_the_other_as_the_real_cat(self):
+        prep, roles = self._ten()
+        trace: list = []
+        play(prep, roles, "grey", "grey", FirstRng(), trace, seer_results=False, cat="counter")      # 対抗猫 G が先に出た(偽)
+        self.assertEqual(trace[0], ("hang", "G", "人狼"))
+        self.assertNotIn("takealong", [t[0] for t in trace[:3]])            # 道連れが起きない = 偽を吊れた
+        self.assertEqual(trace[1][:2], ("bite", "B"))                       # 真猫 A は確定して、噛みも避ける
+        self.assertEqual(trace[2][:2], ("hang", "C"))                       # 以後、A を吊らない(灰の先頭は B・C。B は噛まれた)
+
+    def test_hanging_the_real_cat_takes_a_survivor_and_the_fake_cat_is_hanged_next(self):
+        prep, roles = self._ten()
+        trace: list = []
+        with mock.patch("zinro_learn.progress.FAKE_CAT_FIRST", 0.0):                                  # 本物が先に出た: 先に出た方を吊ると本物
+            play(prep, roles, "grey", "grey", FirstRng(), trace, seer_results=False, cat="counter")
+        self.assertEqual([t[:2] for t in trace[:4]], [("hang", "A"), ("takealong", "B"), ("bite", "C"), ("hang", "G")])   # 道連れで本物と分かり、偽の G を次に吊る
+
+    def test_a_black_given_cat_is_hanged_first_even_with_a_counter_cat(self):
+        board = Board(players=list("ABCDEFGHIJK"), roles=dict(ROLES_12A_NEKO), rco=True)
+        board.claims = [("A", "占い師"), ("B", "占い師"), ("K", "霊能者")]
+        board.results = [dict(kind="占い", first=True, player="A", target="E", color="黒")]
+        prep = prepare(board)
+        roles = {"A": "人狼", "B": "占い師", "C": "人狼", "D": "狂人", "E": "猫又", "F": "村人", "G": "村人", "H": "村人", "I": "狩人", "J": "人狼", "K": "霊能者"}
+        trace: list = []
+        play(prep, roles, "roll_keep", "grey", FirstRng(), trace, seer_results=False, cat="counter")
+        self.assertEqual(trace[0], ("hang", "E", "人間"))                   # 真猫に黒が刺さった形: 黒先として吊られる
+        self.assertEqual(trace[1][0], "takealong")                          # 道連れ
+
+    def test_without_a_counter_cat_the_exposed_cat_is_left_alone_like_an_open_cat(self):
+        prep, roles = self._ten()
+        with mock.patch("zinro_learn.progress.COUNTER_CAT", 0.0):
+            a: list = []
+            play(prep, roles, "grey", "grey", FirstRng(), a, seer_results=False, cat="counter")
+        b: list = []
+        play(prep, roles, "grey", "grey", FirstRng(), b, seer_results=False, cat="open")
+        self.assertEqual(a, b)
+
+    def test_the_counter_cat_is_a_wolf_or_the_madman_who_has_not_claimed_a_seer(self):
+        prep, roles = self._ten()
+        alive = set(roles)
+        self.assertEqual(counter_cat(roles, alive, set(), FirstRng()), ("G", True))                   # 先頭の人狼。先に出た
+        self.assertEqual(counter_cat(roles, alive, set(), LateRng()), (None, False))                  # 出ない
+        # 人狼の割合 COUNTER_CAT_WOLF(0.7)に対して 0.75 → 狂人
+        class MadFirst(FirstRng):
+            def __init__(self):
+                self.values = iter([0.0, 0.75, 0.0])
+            def random(self):
+                return next(self.values)
+        self.assertEqual(counter_cat(roles, alive, set(), MadFirst()), ("I", True))
+        self.assertEqual(counter_cat(roles, alive, {"G", "H", "I"}, FirstRng()), (None, False))        # 人外がみな占いを名乗っていたら、猫の対抗は出ない
+        rng = random.Random(4)
+        draws = [counter_cat(roles, alive, set(), rng) for _ in range(20000)]
+        shown = [d for d in draws if d[0]]
+        self.assertAlmostEqual(len(shown) / 20000, COUNTER_CAT, delta=0.012)
+        self.assertAlmostEqual(sum(1 for d in shown if d[0] in ("G", "H")) / len(shown), COUNTER_CAT_WOLF, delta=0.015)
+        self.assertAlmostEqual(sum(1 for d in shown if d[1]) / len(shown), FAKE_CAT_FIRST, delta=0.015)
+
+    def test_an_exposed_cat_with_a_counter_is_about_as_good_as_a_hidden_one_and_better_for_rollers_when_claims_are_bitten(self):
+        board = neko("ABC")
+        for policy in ("roll_keep", "roll_stop"):
+            hidden = win_rate(board, policy, "claim", n=6000, seed=5, cat="hidden")["rate"]
+            counter = win_rate(board, policy, "claim", n=6000, seed=5, cat="counter")["rate"]
+            self.assertGreater(counter, hidden + 0.01, policy)              # 偽の猫を吊れる分、得をする(この計算の向き)
+
+    def test_the_cat_names_cover_every_mode(self):
+        self.assertEqual(set(CATS), {"off", "hidden", "open", "counter"})
+
+
+class RppTest(unittest.TestCase):
+    """同数のときの票(依頼者の説明): 人外側(人狼と狂人)が村と同数なら、同数で抽選(RPP)。上回れば通る(PP)。"""
+
+    def _eight(self):
+        board = Board(players=list("ABCDEFGH"), roles={"人狼": 3, "狂人": 1, "村人": 4})
+        roles = {"A": "人狼", "B": "人狼", "C": "人狼", "D": "狂人", "E": "村人", "F": "村人", "G": "村人", "H": "村人"}
+        return prepare(board), roles
+
+    def test_four_to_four_is_a_lottery_between_the_wolf_sides_pick_and_the_villages_pick(self):
+        prep, roles = self._eight()
+        trace: list = []
+        play(prep, roles, "grey", "grey", FirstRng(), trace, seer_results=False)                       # 抽選で人外側の選んだ村人が吊られる
+        self.assertEqual(trace[:2], [("rpp", "E", "A"), ("hang", "E", "人間")])
+        self.assertFalse(play(prep, roles, "grey", "grey", FirstRng(), [], seer_results=False))        # 村人が吊られれば、夜に人狼3・人間3で負け
+        trace = []
+        play(prep, roles, "grey", "grey", LateRng(), trace, seer_results=False)                        # 抽選で村の選んだ人外側が吊られる
+        self.assertEqual(trace[:2], [("rpp", "E", "A"), ("hang", "A", "人狼")])
+
+    def test_the_wolf_side_wins_the_vote_outright_when_it_outnumbers_the_village(self):
+        board = Board(players=list("ABCDEFG"), roles={"人狼": 3, "狂人": 1, "村人": 3})
+        prep = prepare(board)
+        roles = {"A": "人狼", "B": "人狼", "C": "人狼", "D": "狂人", "E": "村人", "F": "村人", "G": "村人"}
+        trace: list = []
+        self.assertFalse(play(prep, roles, "grey", "grey", LateRng(), trace, seer_results=False))     # 抽選でなく、必ず通る
+        self.assertEqual(trace, [("pp", "E", ""), ("hang", "E", "人間")])
+
+    def test_rpp_off_leaves_the_vote_to_the_village(self):
+        prep, roles = self._eight()
+        trace: list = []
+        play(prep, roles, "grey", "grey", FirstRng(), trace, seer_results=False, rpp=False)
+        self.assertEqual(trace[0], ("hang", "A", "人狼"))
+
+    def test_without_the_madman_nothing_changes(self):
+        four = Board(players=list("ABCD"), roles={"人狼": 1, "村人": 3})
+        self.assertEqual(win_rate(four, "grey", "grey", n=3000, seed=3)["rate"], win_rate(four, "grey", "grey", n=3000, seed=3, rpp=False)["rate"])
+
+    def test_a_known_wolf_is_not_enough_at_four_to_four(self):
+        """村が人狼を1人確定させていても、4:4 では抽選になる。確定がなければ、そもそも勝ち目が薄い(約 3%)。"""
+        board = Board(players=list("ABCDEFGH"), roles={"人狼": 3, "狂人": 1, "占い師": 1, "村人": 3}, rco=True)
+        board.claims = [("A", "占い師")]
+        board.results = [dict(kind="占い", first=True, player="A", target="B", color="黒")]
+        prep = prepare(board)
+        roles = {"A": "占い師", "B": "人狼", "C": "人狼", "D": "人狼", "E": "狂人", "F": "村人", "G": "村人", "H": "村人"}
+        with_rpp = sum(play(prep, roles, "grey", "grey", random.Random(i), seer_results=False) for i in range(3000)) / 3000
+        without = sum(play(prep, roles, "grey", "grey", random.Random(i), seer_results=False, rpp=False) for i in range(3000)) / 3000
+        self.assertGreater(without, 0.1)
+        self.assertLess(with_rpp, without - 0.05)                           # 確定した黒先でも、抽選で半分は村人が吊られる
+
+    def test_the_conditional_win_rate_counts_only_matching_worlds(self):
+        board = neko("ABC", [{"player": "A", "target": "E", "color": "黒"}])
+        result = win_rate(board, "roll_keep", "grey", n=300, seed=2, where=lambda roles: roles["E"] == "猫又")
+        self.assertEqual(result["n"], 300)
+        self.assertEqual(result["by_label"].keys() <= {"真狼狼", "真狼狂", "真狂狼"}, True)
+        with self.assertRaises(ValueError):
+            win_rate(board, "roll_keep", "grey", n=5, seed=2, where=lambda roles: False)
 
 
 class ComparisonTest(unittest.TestCase):

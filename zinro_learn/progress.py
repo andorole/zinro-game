@@ -38,8 +38,20 @@
   open: 猫又が名乗って、村は吊らず、狼は噛まない(ほかに候補があるあいだ)。ただし、人狼2人で夜に6人のときは、
   OPEN_CAT_BITE の割合で、猫又を噛む(噛めば一気に最終日に行ける。依頼者の話。人狼が1人(LW)のときは、絶対に噛めない)。
   ランダムな道連れと、猫の対抗(人狼や狂人の偽の猫)が出ることがあるので、最近はあまり噛まない、とのこと(仮に 2割)。
+  counter: 猫又が名乗り、COUNTER_CAT の割合で、対抗の猫(偽の猫)が出る。対抗は、名乗っていない人狼(COUNTER_CAT_WOLF の割合)か狂人。
+  いまの環境では、猫COに対抗猫が出たら猫吊りが基本(依頼者。占いへの対抗黒と同じ型で、環境上確率が高い盤面を想定した吊り)。
+  猫が2人名乗っていると、村は猫を吊る: 黒を出された方(黒先)。なければ、先に出た方(FAKE_CAT_FIRST の割合で、先に出たのが偽)。
+  吊った猫が本物なら、道連れが起きる(依頼者: 道連れが起きたらほぼ負け)。道連れが起きなければ、偽を吊れたと分かるので、
+  残る猫は本物として吊らない(放置)。本物が先に死んで偽が残ったら、その偽を、黒先のあとに吊る。
 
-入れていないもの(大きなもの): 猫又の騙り(偽の猫を名乗って回避する人狼)、ギドラCO、同数のときの票の操作(PP)、票が割れること、村の読み。
+同数のときの票(PP・RPP。依頼者の説明。rpp が真のとき):
+- 人外側(人狼と狂人)の人数が、村(人外側でない人)の人数以上になると、人外側が同じ村人1人に票を入れる。人数が上回れば、必ず通る(PP)。
+  同数なら、村が人外側の1人にまとまっても同数で、抽選になる(RPP。「同数なら抽選」の部屋の決まり)。村は、人外側の1人(だれが狂人かは
+  分からないので、無作為)にまとまる、と置く。半々で、人外側が選んだ村人が吊られるか、村が選んだ人外側の1人が吊られる。
+  人狼3・狂人1・村4(昼2。真猫を吊って道連れが村に当たった形)では、村の勝ちは 1/32(約 3%)になる(依頼者: ほぼ負け)。
+- 人外側に狂人がいないと、人数が同数以上の時点で人狼の勝ちなので、この操作は起きない。
+
+入れていないもの(大きなもの): 猫の対抗の出方の細かい違い(先に出る偽の猫が、真猫の露出を誘うことなど)、ギドラCO、票が割れること、村の読み。
 狂人は、人間として数える。人狼が人間と同数以上になれば、人狼の勝ち。人狼が全滅すれば、村の勝ち。
 """
 from __future__ import annotations
@@ -47,6 +59,7 @@ from __future__ import annotations
 import random
 from bisect import bisect
 from collections import defaultdict
+from collections.abc import Callable
 from dataclasses import dataclass
 from itertools import accumulate
 
@@ -55,8 +68,11 @@ from .board import Board, World, enumerate_worlds, marginals, pattern_label
 FAKE_BLACK_LATER = 0.05          # 仮。偽の占いが、2日目以降の夜に、人狼でない人へ黒を出す重み(白を出す場合を 1)。初手(0.15)より小さい
 ENCLOSE_NEXT = 0.5               # 仮。偽の人狼が、次手(夜1の結果)で、灰の仲間に白を出す(囲う)割合
 OPEN_CAT_BITE = 0.2              # 仮。名乗っている猫又を、人狼2人・夜に6人のときに、狼が噛む割合(依頼者: たまに噛む。最近はあまり噛まない)
-CATS = ("off", "hidden", "open")
-CAT_NAME = {"off": "猫又の力なし", "hidden": "猫又は隠れている", "open": "猫又は名乗っている"}
+COUNTER_CAT = 0.7                # 依頼者の話(その割合でよい。対抗猫はまあまあ出る)。猫又が名乗ったあと、対抗の猫(偽の猫)が出る割合
+COUNTER_CAT_WOLF = 0.7           # 依頼者の話(その割合でよい)。対抗の猫が人狼の割合(残りは狂人。人狼 : 狂人 = 7 : 3)
+FAKE_CAT_FIRST = 0.6             # 仮。猫が2人名乗ったとき、先に出た方が偽の割合。依頼者: 黒がなければ、どちらかといえば先に出た方を吊る
+CATS = ("off", "hidden", "open", "counter")
+CAT_NAME = {"off": "猫又の力なし", "hidden": "猫又は隠れている", "open": "猫又は名乗っている", "counter": "猫又は名乗り、対抗猫が出る"}
 POLICIES = ("grey", "roll_keep", "roll_stop", "roll")
 POLICY_NAME = {"grey": "グレー", "roll_keep": "占いロラ", "roll_stop": "黒スト", "roll": "ロラ完遂"}
 BITES = ("grey", "claim")
@@ -120,12 +136,24 @@ def night_result(seer_role: str, target_role: str, rng: random.Random) -> str:
     return "黒" if rng.random() < black else "白"
 
 
+def counter_cat(roles: dict[str, str], alive: set[str], claimants: set[str], rng: random.Random) -> tuple[str | None, bool]:
+    """名乗った猫又に対抗して出る偽の猫と、その人が先に出たか。(名乗りでない人狼か狂人から。出ないときは (None, False))"""
+    if rng.random() >= COUNTER_CAT:
+        return None, False
+    free = [p for p in sorted(alive) if p not in claimants]
+    wolves = [p for p in free if roles[p] == "人狼"]
+    mads = [p for p in free if roles[p] == "狂人"]
+    pool = (wolves if rng.random() < COUNTER_CAT_WOLF else mads) or wolves or mads
+    if not pool:
+        return None, False
+    return rng.choice(pool), rng.random() < FAKE_CAT_FIRST
+
+
 def play(prep: Prepared, roles: dict[str, str], policy: str, bite: str, rng: random.Random, trace: list | None = None,
-         guard: str | None = None, seer_results: bool = True, cat: str = "hidden") -> bool:
+         guard: str | None = None, seer_results: bool = True, cat: str = "hidden", rpp: bool = True) -> bool:
     """1回の試合を動かす。村が勝てば True。trace があれば、(種類, 人, 色) の出来事を足す。"""
     if cat not in CATS:
         raise ValueError(f"知らない猫又の扱い: {cat}")
-    shielded = {p for p in prep.board.players if roles[p] == "猫又"} if cat == "open" else set()     # 名乗っている猫又
     board = prep.board
     black_sayer = next((r["player"] for r in board.results if r["kind"] == "占い" and r["color"] == "黒"), None)
     guarded = {None: None, "medium": prep.medium, "blacksayer": black_sayer}[guard]
@@ -133,6 +161,10 @@ def play(prep: Prepared, roles: dict[str, str], policy: str, bite: str, rng: ran
     alive = set(board.players)
     for p in board.dead:                                  # 盤面にすでにある死者
         alive.discard(p)
+    real_cat = next((p for p in sorted(alive) if roles[p] == "猫又"), None)
+    fake_cat, fake_first = None, False                    # 対抗の猫(偽)と、先に出たのが偽か
+    if cat == "counter" and real_cat is not None:
+        fake_cat, fake_first = counter_cat(roles, alive, claimants, rng)
     blacks = sorted({r["target"] for r in board.results if r["color"] == "黒" and r["target"] in alive}, key=lambda p: -prep.wolf_prob[p])
     order = sorted(prep.seers, key=lambda p: (-prep.wolf_prob[p], rng.random()))
     kept = order[-1] if order else None                   # 本物と見る占い(狼の見込みがいちばん低い名乗り)
@@ -147,6 +179,26 @@ def play(prep: Prepared, roles: dict[str, str], policy: str, bite: str, rng: ran
         wolves = sum(1 for p in alive if roles[p] == "人狼")
         return wolves, len(alive) - wolves
 
+    def cats() -> tuple[bool, str | None, set[str]]:
+        """(猫が2人名乗っていて決着前か, 偽と分かった猫, 名乗っている猫)。猫又の道連れが起きれば、どちらが本物か分かる。"""
+        if cat not in ("open", "counter") or real_cat is None:
+            return False, None, set()
+        real_alive = real_cat in alive
+        fake_alive = fake_cat is not None and fake_cat in alive
+        exposed = ({real_cat} if real_alive else set()) | ({fake_cat} if real_alive and fake_alive else set())
+        return real_alive and fake_alive, (fake_cat if fake_alive and not real_alive else None), exposed
+
+    def hang(target: str) -> None:
+        alive.discard(target)
+        unreported.append(target)
+        if trace is not None:
+            trace.append(("hang", target, "人狼" if roles[target] == "人狼" else "人間"))
+        if cat != "off" and roles[target] == "猫又" and alive:
+            taken = rng.choice(sorted(alive))                             # 吊られた猫又は、生存者からランダムに1人を道連れにする
+            alive.discard(taken)
+            if trace is not None:
+                trace.append(("takealong", taken, "人狼" if roles[taken] == "人狼" else "人間"))
+
     while True:
         wolves, humans = counts()
         if wolves == 0:
@@ -158,7 +210,7 @@ def play(prep: Prepared, roles: dict[str, str], policy: str, bite: str, rng: ran
                 colors[t] = "黒" if roles[t] == "人狼" else "白"
                 if trace is not None:
                     trace.append(("report", t, colors[t]))
-        unreported = []
+        unreported.clear()
         for seer, t, c in reports:                        # 朝: 夜に出た占いの結果。噛まれた占いは出せない
             if seer not in alive:
                 continue
@@ -170,14 +222,33 @@ def play(prep: Prepared, roles: dict[str, str], policy: str, bite: str, rng: ran
                 elif c == "白":
                     safe.add(t)
         reports = []
-        all_greys = [p for p in alive if p not in claimants and p not in shielded] or [p for p in alive if p not in claimants]
+        pending, known_fake, exposed = cats()
+        all_greys = [p for p in alive if p not in claimants and p not in exposed] or [p for p in alive if p not in claimants]
         greys = [p for p in all_greys if p not in safe] or all_greys      # 白を貰った灰は、無作為の吊りから外す
         alive_seers = [p for p in order if p in alive]
         hanged_seer_colors = [colors.get(p) for p in order if p not in alive]
         target = None
         alive_blacks = [p for p in blacks if p in alive]
-        if alive_blacks:
+        side = sorted(p for p in alive if roles[p] in ("人狼", "狂人"))                 # 人外側(人狼と狂人)
+        villagers = sorted(p for p in alive if roles[p] not in ("人狼", "狂人"))
+        if rpp and villagers and any(roles[p] == "狂人" for p in side) and len(side) >= len(villagers):
+            # PP・RPP: 人外側が同じ村人に票を入れる。上回れば通る。同数なら、村が人外側の1人にまとまっても同数で、抽選
+            pick = rng.choice(villagers)
+            if len(side) > len(villagers):
+                target = pick
+                if trace is not None:
+                    trace.append(("pp", pick, ""))
+            else:
+                against = rng.choice(side)
+                target = pick if rng.random() < 0.5 else against
+                if trace is not None:
+                    trace.append(("rpp", pick, against))
+        elif alive_blacks:
             target = alive_blacks[0]                      # 黒先
+        elif known_fake is not None:
+            target = known_fake                           # 本物の猫が先に死んで、偽と分かった猫
+        elif pending:
+            target = fake_cat if fake_first else real_cat # 猫が2人名乗っている: 黒がなければ、先に出た方を吊る(吊った猫の道連れで、本物か分かる)
         elif policy == "grey":
             target = rng.choice(sorted(greys)) if greys else None
         elif policy == "roll":
@@ -201,23 +272,16 @@ def play(prep: Prepared, roles: dict[str, str], policy: str, bite: str, rng: ran
         if target is None:                                # 候補が尽きたとき: 占い、霊能、残る誰か
             rest = sorted(alive_seers) or sorted(alive)
             target = rng.choice(rest)
-        alive.discard(target)
-        unreported.append(target)
-        if trace is not None:
-            trace.append(("hang", target, "人狼" if roles[target] == "人狼" else "人間"))
-        if cat != "off" and roles[target] == "猫又" and alive:
-            taken = rng.choice(sorted(alive))                             # 吊られた猫又は、生存者からランダムに1人を道連れにする
-            alive.discard(taken)
-            if trace is not None:
-                trace.append(("takealong", taken, "人狼" if roles[taken] == "人狼" else "人間"))
+        hang(target)
         wolves, humans = counts()
         if wolves == 0:
             return True
         if wolves >= humans:
             return False
         # 夜: 狼が1人噛む
+        _, _, exposed = cats()                            # 名乗っている猫又は、ほかに候補があるあいだ噛まない
         nonwolf = sorted(p for p in alive if roles[p] != "人狼")
-        open_nonwolf = [p for p in nonwolf if p not in shielded] or nonwolf     # 名乗っている猫又は、ほかに候補があるあいだ噛まない
+        open_nonwolf = [p for p in nonwolf if p not in exposed] or nonwolf
         if bite == "claim":
             pool = [p for p in open_nonwolf if p in claimants] or [p for p in open_nonwolf if p not in claimants] or open_nonwolf
         elif bite == "grey":
@@ -225,8 +289,8 @@ def play(prep: Prepared, roles: dict[str, str], policy: str, bite: str, rng: ran
         else:
             raise ValueError(f"知らない噛み方: {bite}")
         wolves_now = sum(1 for p in alive if roles[p] == "人狼")
-        if shielded & set(nonwolf) and wolves_now == 2 and len(alive) == 6 and rng.random() < OPEN_CAT_BITE:
-            pool = sorted(shielded & set(nonwolf))                          # 人狼2人・夜に6人: 猫又を噛めば、一気に最終日に行ける
+        if exposed & set(nonwolf) and wolves_now == 2 and len(alive) == 6 and rng.random() < OPEN_CAT_BITE:
+            pool = sorted(exposed & set(nonwolf))                          # 人狼2人・夜に6人: 猫又を噛めば、一気に最終日に行ける
         victim = rng.choice(pool)
         if guarded is not None and victim == guarded and any(roles[p] == "狩人" for p in alive):
             if trace is not None:
@@ -261,31 +325,42 @@ def play(prep: Prepared, roles: dict[str, str], policy: str, bite: str, rng: ran
 
 
 def win_rate(board: Board, policy: str, bite: str = "grey", n: int = 20000, seed: int = 1, prep: Prepared | None = None,
-             guard: str | None = None, seer_results: bool = True, cat: str = "hidden") -> dict:
-    """進行 policy・噛み方 bite で n 回動かした、村の勝率。構成(占いの名乗りの種類の組み合わせ)別の割合も返す。"""
+             guard: str | None = None, seer_results: bool = True, cat: str = "hidden", rpp: bool = True,
+             where: Callable[[dict[str, str]], bool] | None = None) -> dict:
+    """進行 policy・噛み方 bite で n 回動かした、村の勝率。構成(占いの名乗りの種類の組み合わせ)別の割合も返す。
+    where があれば、役職の割り当てがその条件を満たす世界だけを数える(例: 黒を出された人が猫又の世界)。"""
     prep = prep or prepare(board)
     world_rng, play_rng = random.Random(seed), random.Random(seed + 1)   # 世界の引きは、進行によらず同じ列にする(比べやすい)
     wins, total = 0, defaultdict(int)
     by_win: dict[str, int] = defaultdict(int)
-    for _ in range(n):
+    done = 0
+    for _ in range(n * (200 if where else 1)):
         roles, label = sample_world(prep, world_rng)
+        if where is not None and not where(roles):
+            continue
         total[label] += 1
-        if play(prep, roles, policy, bite, play_rng, guard=guard, seer_results=seer_results, cat=cat):
+        if play(prep, roles, policy, bite, play_rng, guard=guard, seer_results=seer_results, cat=cat, rpp=rpp):
             wins += 1
             by_win[label] += 1
-    rate = wins / n
+        done += 1
+        if done == n:
+            break
+    if done == 0:
+        raise ValueError("条件に合う世界が引けなかった")
+    rate = wins / done
     return {
         "rate": rate,
-        "stderr": (rate * (1 - rate) / n) ** 0.5,
-        "by_label": {k: {"share": total[k] / n, "rate": by_win[k] / total[k]} for k in sorted(total, key=lambda k: -total[k])},
+        "stderr": (rate * (1 - rate) / done) ** 0.5,
+        "n": done,
+        "by_label": {k: {"share": total[k] / done, "rate": by_win[k] / total[k]} for k in sorted(total, key=lambda k: -total[k])},
     }
 
 
 def compare(board: Board, n: int = 20000, seed: int = 1, policies=POLICIES, bites=BITES, guard: str | None = None,
-            seer_results: bool = True, cat: str = "hidden") -> dict:
+            seer_results: bool = True, cat: str = "hidden", rpp: bool = True) -> dict:
     """進行 × 噛み方の、村の勝率の表。{(bite, policy): win_rate の結果}。同じ世界の引きで比べる(seed を共通にする)。"""
     prep = prepare(board)
-    return {(b, p): win_rate(board, p, b, n, seed, prep, guard, seer_results, cat) for b in bites for p in policies}
+    return {(b, p): win_rate(board, p, b, n, seed, prep, guard, seer_results, cat, rpp) for b in bites for p in policies}
 
 
 def hit_rates(board: Board) -> dict:
@@ -302,8 +377,8 @@ def hit_rates(board: Board) -> dict:
 
 
 def compare_text(board: Board, title: str, n: int = 20000, seed: int = 1, guard: str | None = None, seer_results: bool = True,
-                 cat: str = "hidden") -> str:
-    table = compare(board, n, seed, guard=guard, seer_results=seer_results, cat=cat)
+                 cat: str = "hidden", rpp: bool = True) -> str:
+    table = compare(board, n, seed, guard=guard, seer_results=seer_results, cat=cat, rpp=rpp)
     first = next(iter(table.values()))
     labels = list(first["by_label"])                      # 構成の割合の大きい順(どの進行でも、世界の引きは同じ)
     lines = [f"{title}(試算 {n} 回。誤差は ±{max(r['stderr'] for r in table.values()) * 100:.1f}% くらい)"]

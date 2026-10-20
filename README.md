@@ -22,7 +22,7 @@
 | `logs/raw/<id>.txt` | 貼り付けた生ログ | 管理外 |
 | `logs/normalized/<id>.json` | 時系列に直し、名前を A, B, C に置き換えたもの | 管理外 |
 | `logs/private/<id>.players.json` | 匿名名と実名の対応 | 管理外 |
-| `zinro_learn/` | 取り込み(`parse.py`。人狼の「仲間」の通知と夜チャットも読む)・役職・夜の行動・通知・死亡の読み取り(`roles.py`)・盤面整理(`board.py`。公開された情報に合う役職の割り当て、確定した黒白、縄、初手の結果の癖を入れた、名乗った人の種類の見込み)・進行の比較(`progress.py`。占いロラ・グレランなどの、村の勝率の試算。占いの夜の結果・狼の噛み方・狩人の護衛・猫又の道連れを選べる)・統計(`analyze.py`。議論が2日以上のログは、日ごとの内訳も出す)・整合性チェックと型の表の同期(`check.py`)・連投と返信の型の集計(`structure.py`) | 管理 |
+| `zinro_learn/` | 取り込み(`parse.py`。人狼の「仲間」の通知と夜チャットも読む)・役職・夜の行動・通知・死亡の読み取り(`roles.py`)・盤面整理(`board.py`。公開された情報に合う役職の割り当て、確定した黒白、縄、初手の結果の癖を入れた、名乗った人の種類の見込み)・進行の比較(`progress.py`。占いロラ・グレランなどの、村の勝率の試算。占いの夜の結果・狼の噛み方・狩人の護衛・猫又の道連れと対抗猫・同数のときの票(RPP)を選べる)・統計(`analyze.py`。議論が2日以上のログは、日ごとの内訳も出す)・整合性チェックと型の表の同期(`check.py`)・連投と返信の型の集計(`structure.py`) | 管理 |
 | `knowledge/discussion_style.md` | 議論の型・長さ・語彙と、プロンプト用の要約 | 管理 |
 | `knowledge/playbook.md` | 立ち回りの観察 | 管理 |
 | `knowledge/reply_structure.md` | 返信の構造(連投、複数への返信、遅れた返信、返さない発言)と、設計メモ | 管理 |
@@ -46,7 +46,7 @@ python -m zinro_learn stats logs/normalized/<id>.json
 python -m zinro_learn timeline logs/normalized/<id>.json   # 役職、夜の行動と通知、死亡、人狼の夜チャットを、夜と昼の順に並べる
 python -m zinro_learn board knowledge/boards/<id>.json     # 盤面整理: 段階ごとの、合う役職の割り当て(真・狼・狂)、定番／ありうる／まれ、名乗った人の種類の見込み、確定した黒白、縄
 python -m zinro_learn board --patterns                      # 名乗りの数(占い-霊)ごとの、名乗りの種類の組み合わせ
-python -m zinro_learn progress --seers 3 [--result A:B:黒] [--cat off|hidden|open]  # 進行の比較: 12A猫の3-1などで、グレー・占いロラ・黒スト・ロラ完遂の、村の勝率の試算(村の読みなし。占いの2日目以降の夜の結果と猫又の道連れあり。--no-seer-results でなし)
+python -m zinro_learn progress --seers 3 [--result A:B:黒] [--cat off|hidden|open|counter]  # 進行の比較: 12A猫の3-1などで、グレー・占いロラ・黒スト・ロラ完遂の、村の勝率の試算(村の読みなし。占いの2日目以降の夜の結果、猫又の道連れ、人外側の同数の票(RPP)あり。--no-seer-results、--no-rpp でなし。counter は猫が名乗り、対抗猫が出て猫吊り)
 python -m zinro_learn sync      # 発言例から、ガイドの「発言の型」の表を作り直す
 python -m zinro_learn check     # knowledge/ の整合性を調べる(問題があれば終了コード 1)
 python -m zinro_learn structure # 連投と返信の型を数える(発言例の reply_to を使う)
