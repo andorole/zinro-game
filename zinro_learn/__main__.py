@@ -6,7 +6,7 @@
   python -m zinro_learn timeline logs/normalized/<id>.json [...]   # 役職、夜の行動と通知、死亡、人狼の夜チャットを、夜と昼の順に並べる
   python -m zinro_learn board knowledge/boards/<id>.json [--stage N]   # 盤面整理: 公開された情報に合う役職の割り当て(真・狼・狂)、確定した黒白、縄
   python -m zinro_learn board --patterns   # 名乗りの数(占い-霊)ごとの、名乗りの種類の組み合わせと、定番／ありうる／まれ
-  python -m zinro_learn progress --seers 3 [--result A:B:黒] [--guard none|medium|blacksayer|env] [--cat off|hidden|open|counter] [--no-seer-results] [--no-rpp]   # 進行の比較(占いロラ・グレランなど)の、村の勝率の試算
+  python -m zinro_learn progress --seers 3 [--result A:B:黒] [--guard none|medium|blacksayer|env] [--cat off|hidden|open|counter|gidra] [--no-seer-results] [--no-rpp]   # 進行の比較(占いロラ・グレランなど)の、村の勝率の試算
   python -m zinro_learn sync     # 発言例から、ガイドの「発言の型」の表を作り直す
   python -m zinro_learn check    # knowledge/ の整合性を調べる(問題があれば終了コード 1)
   python -m zinro_learn structure  # 連投と返信の型(1発言に1返信ではない構造)を数える
@@ -178,7 +178,9 @@ def main(argv=None) -> None:
     p.add_argument("--result", action="append", default=[], help="占いの初手の結果。例: A:B:黒(A が B に黒)。複数指定可")
     p.add_argument("--guard", choices=["none", "medium", "blacksayer", "env"], default="env",
                    help="狩人の護衛: none=護衛なし、medium=霊護衛固定、blacksayer=黒出し占い護衛固定、env=環境の護衛(黒を出した占い、なければ霊能。既定)")
-    p.add_argument("--cat", choices=CATS, default="hidden", help="猫又の扱い: off=力を数えない、hidden=隠れている、open=名乗っていて吊らず噛まない、counter=名乗り、対抗猫が出る(猫吊り)")
+    p.add_argument("--cat", choices=CATS, default="gidra",
+                   help="猫又の扱い: off=力を数えない、hidden=隠れている、open=名乗っていて吊らず噛まない、counter=名乗り、対抗猫が出る(猫吊り)、"
+                        "gidra=隠れていて、黒を刺されたら・指定されたら名乗る(既定)")
     p.add_argument("--no-rpp", action="store_true", help="同数のときの票(人外側の PP・RPP)を入れない(11A のメモと同じ前提)")
     p.add_argument("--no-seer-results", action="store_true", help="占いの2日目以降の結果を入れない(最初の試算と同じ)")
     p.add_argument("--n", type=int, default=20000, help="試算の回数")

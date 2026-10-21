@@ -4,8 +4,8 @@ from unittest import mock
 
 from zinro_learn.board import FAKE_BLACK_FIRST, Board, ROLES_12A_NEKO
 from zinro_learn.progress import (
-    BITES, CATS, COUNTER_CAT, COUNTER_CAT_WOLF, ENCLOSE_NEXT, FAKE_BLACK_LATER, FAKE_CAT_FIRST, GUARDS, OPEN_CAT_BITE, POLICIES,
-    compare, compare_text, counter_cat, hit_rates, night_result, play, prepare, sample_world, win_rate,
+    BITES, CATS, COUNTER_CAT, COUNTER_CAT_WOLF, ENCLOSE_NEXT, FAKE_BLACK_LATER, FAKE_CAT_FIRST, FAKE_CAT_PROACTIVE, GIDRA_CAT, GUARDS,
+    OPEN_CAT_BITE, POLICIES, compare, compare_text, counter_cat, hit_rates, night_result, play, prepare, sample_world, win_rate,
 )
 
 
@@ -393,7 +393,90 @@ class CounterCatTest(unittest.TestCase):
             self.assertGreater(counter, hidden + 0.01, policy)              # 偽の猫を吊れる分、得をする(この計算の向き)
 
     def test_the_cat_names_cover_every_mode(self):
-        self.assertEqual(set(CATS), {"off", "hidden", "open", "counter"})
+        self.assertEqual(set(CATS), {"off", "hidden", "open", "counter", "gidra"})
+
+
+class GidraCatTest(unittest.TestCase):
+    """猫又が出るのは、昼1だと、黒を刺されたとき(必ず出る)と、吊りを指定されたとき(単体で名乗る=ギドラ)(依頼者)。"""
+
+    def _ten(self):
+        # A が真猫。G・H が人狼(G が偽の猫になる)、I が狂人
+        board = Board(players=list("ABCDEFGHIJ"), roles={"人狼": 2, "狂人": 1, "猫又": 1, "村人": 6})
+        roles = {"A": "猫又", "B": "村人", "C": "村人", "D": "村人", "E": "村人", "F": "村人", "G": "人狼", "H": "人狼", "I": "狂人", "J": "村人"}
+        return prepare(board), roles
+
+    def test_a_designated_cat_comes_out_alone_and_the_village_picks_someone_else_when_no_counter_cat_appears(self):
+        prep, roles = self._ten()
+        trace: list = []
+        with mock.patch("zinro_learn.progress.FAKE_CAT_PROACTIVE", 0.0), mock.patch("zinro_learn.progress.COUNTER_CAT", 0.0):
+            play(prep, roles, "grey", "grey", FirstRng(), trace, seer_results=False, cat="gidra")
+        self.assertEqual(trace[:3], [("cat", "A", "指定"), ("hang", "B", "人間"), ("bite", "C", "")])     # 先頭の灰 A は名乗って吊りを避け、B が吊られる
+        self.assertNotIn("takealong", [t[0] for t in trace[:3]])
+        hidden: list = []
+        play(prep, roles, "grey", "grey", FirstRng(), hidden, seer_results=False, cat="hidden")
+        self.assertEqual(hidden[:2], [("hang", "A", "人間"), ("takealong", "B", "人間")])                 # 隠れたままなら、そのまま吊られて道連れ
+
+    def test_a_counter_cat_after_the_designated_cat_comes_out_makes_the_village_hang_the_earlier_real_cat(self):
+        prep, roles = self._ten()
+        trace: list = []
+        with mock.patch("zinro_learn.progress.FAKE_CAT_PROACTIVE", 0.0):
+            play(prep, roles, "grey", "grey", FirstRng(), trace, seer_results=False, cat="gidra")
+        self.assertEqual([t[:2] for t in trace[:6]], [("cat", "A"), ("fakecat", "G"), ("hang", "A"), ("takealong", "B"), ("bite", "C"), ("hang", "G")])
+        self.assertEqual(trace[1], ("fakecat", "G", "あとから出る"))
+        # 道連れで本物と分かり、偽の G を次に吊る
+
+    def test_a_black_given_cat_always_comes_out_and_is_hanged_first(self):
+        board = Board(players=list("ABCDEFGHIJK"), roles=dict(ROLES_12A_NEKO), rco=True)
+        board.claims = [("A", "占い師"), ("B", "占い師"), ("K", "霊能者")]
+        board.results = [dict(kind="占い", first=True, player="A", target="E", color="黒")]
+        prep = prepare(board)
+        roles = {"A": "人狼", "B": "占い師", "C": "人狼", "D": "狂人", "E": "猫又", "F": "村人", "G": "村人", "H": "村人", "I": "狩人", "J": "人狼", "K": "霊能者"}
+        trace: list = []
+        with mock.patch("zinro_learn.progress.FAKE_CAT_PROACTIVE", 0.0):
+            play(prep, roles, "roll_keep", "grey", FirstRng(), trace, seer_results=False, cat="gidra")
+        self.assertEqual([t[:2] for t in trace[:4]], [("cat", "E"), ("fakecat", "C"), ("hang", "E"), ("takealong", "A")])    # 名乗っても、黒先として吊られる(道連れは、先頭の生存者)
+        self.assertEqual(trace[0], ("cat", "E", "黒"))
+
+    def test_a_fake_cat_that_comes_out_first_makes_the_real_cat_expose_and_the_earlier_fake_is_hanged(self):
+        prep, roles = self._ten()
+        trace: list = []
+        with mock.patch("zinro_learn.progress.FAKE_CAT_PROACTIVE", 1.0):
+            play(prep, roles, "grey", "grey", FirstRng(), trace, seer_results=False, cat="gidra")
+        self.assertEqual(trace[:4], [("fakecat", "G", "先に出る"), ("cat", "A", "対抗"), ("hang", "G", "人狼"), ("bite", "B", "")])
+        self.assertNotIn("takealong", [t[0] for t in trace[:4]])             # 道連れが起きない = 偽を吊れた。真猫 A は確定して、噛みも避ける
+
+    def test_an_undesignated_hidden_cat_stays_hidden(self):
+        prep, roles = self._ten()
+        roles = {**roles, "A": "村人", "B": "猫又"}                            # 猫は B。先頭の灰 A が吊られる
+        trace: list = []
+        with mock.patch("zinro_learn.progress.FAKE_CAT_PROACTIVE", 0.0):
+            play(prep, roles, "grey", "grey", FirstRng(), trace, seer_results=False, cat="gidra")
+        self.assertEqual(trace[0], ("hang", "A", "人間"))
+        self.assertNotIn("cat", [t[0] for t in trace[:1]])
+        with mock.patch("zinro_learn.progress.GIDRA_CAT", 0.0), mock.patch("zinro_learn.progress.FAKE_CAT_PROACTIVE", 0.0):
+            roles2 = {**roles, "A": "猫又", "B": "村人"}
+            trace = []
+            play(prep, roles2, "grey", "grey", FirstRng(), trace, seer_results=False, cat="gidra")
+            self.assertEqual(trace[:2], [("hang", "A", "人間"), ("takealong", "B", "人間")])    # 名乗らなければ、隠れたまま吊られる
+
+    def test_the_flows_give_about_the_stated_share_of_fake_first_pairs(self):
+        """依頼者: 猫が2人のとき、先に出たのが偽の割合は6割くらい。先に出る偽(FAKE_CAT_PROACTIVE)と、指定・黒で出た真猫に対抗する偽の比で決まる(占いロラで確かめる)。"""
+        board = neko("ABC")
+        prep = prepare(board)
+        rng = random.Random(8)
+        first = later = 0
+        for i in range(5000):
+            roles, _ = sample_world(prep, rng)
+            trace: list = []
+            play(prep, roles, "roll_keep", "grey", random.Random(i), trace, cat="gidra")
+            for t in trace:
+                if t[0] == "fakecat":
+                    first += t[2] == "先に出る"
+                    later += t[2] == "あとから出る"
+        self.assertGreater(first + later, 800)
+        self.assertAlmostEqual(first / (first + later), 0.6, delta=0.12)
+        self.assertEqual(GIDRA_CAT, 1.0)
+        self.assertLess(FAKE_CAT_PROACTIVE, 0.5)
 
 
 class RppTest(unittest.TestCase):

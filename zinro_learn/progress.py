@@ -45,6 +45,11 @@
   猫が2人名乗っていると、村は猫を吊る: 黒を出された方(黒先)。なければ、先に出た方(FAKE_CAT_FIRST の割合で、先に出たのが偽)。
   吊った猫が本物なら、道連れが起きる(依頼者: 道連れが起きたらほぼ負け)。道連れが起きなければ、偽を吊れたと分かるので、
   残る猫は本物として吊らない(放置)。本物が先に死んで偽が残ったら、その偽を、黒先のあとに吊る。
+  gidra: 猫又は隠れていて、昼1に出るのは、黒を刺されたとき(必ず出る)と、吊りを指定されたとき(単体で名乗る=ギドラ。狩人は出ない)だけ
+  (依頼者。2-2・3-1 では出方が違うと聞いたが、まだ入れていない)。出たあとの流れは counter と同じ(対抗猫が COUNTER_CAT で、あとから出る)。
+  指定されて出た猫に対抗猫が出なければ、村は吊り先を選び直す(猫は確定して放置)。出れば猫吊りで、先に出た本物を吊る形になる。
+  偽の猫が、真猫より先に自分から出ることもある(FAKE_CAT_PROACTIVE の割合で、試合の初めから出ている)。そのときは、真猫が対抗として露出し、
+  先に出た偽の猫を吊る形になる。先に出たのが偽の割合は、この2つの流れの比で決まる(依頼者の「6割くらい」に近づくように置いた)。
 
 同数のときの票(PP・RPP。依頼者の説明。rpp が真のとき):
 - 人外側(人狼と狂人)の人数が、村(人外側でない人)の人数以上になると、人外側が同じ村人1人に票を入れる。人数が上回れば、必ず通る(PP)。
@@ -54,7 +59,10 @@
   人狼3・狂人1・村4(昼2。真猫を吊って道連れが村に当たった形)では、村の勝ちは 1/32(約 3%)になる(依頼者: ほぼ負け)。
 - 人外側に狂人がいないと、人数が同数以上の時点で人狼の勝ちなので、この操作は起きない。
 
-入れていないもの(大きなもの): 猫の対抗の出方の細かい違い(先に出る偽の猫が、真猫の露出を誘うことなど)、ギドラCO、票が割れること、村の読み。
+標準(`python -m zinro_learn progress` と、知識メモの表): 護衛 env、猫又 gidra、同数の票あり。関数の既定は、護衛なし・猫又 hidden・同数の票あり
+(試験と、11A のメモとの比較のため。呼ぶ側が選ぶ)。
+
+入れていないもの(大きなもの): 3-1・2-2 での猫の出方(2-2 は霊能2人の盤面が未対応)、狩人のギドラCO、票が割れること、村の読み。
 狂人は、人間として数える。人狼が人間と同数以上になれば、人狼の勝ち。人狼が全滅すれば、村の勝ち。
 """
 from __future__ import annotations
@@ -73,9 +81,12 @@ ENCLOSE_NEXT = 0.5               # 仮。偽の人狼が、次手(夜1の結果)
 OPEN_CAT_BITE = 0.2              # 仮。名乗っている猫又を、人狼2人・夜に6人のときに、狼が噛む割合(依頼者: たまに噛む。最近はあまり噛まない)
 COUNTER_CAT = 0.7                # 依頼者の話(その割合でよい。対抗猫はまあまあ出る)。猫又が名乗ったあと、対抗の猫(偽の猫)が出る割合
 COUNTER_CAT_WOLF = 0.7           # 依頼者の話(その割合でよい)。対抗の猫が人狼の割合(残りは狂人。人狼 : 狂人 = 7 : 3)
-FAKE_CAT_FIRST = 0.6             # 仮。猫が2人名乗ったとき、先に出た方が偽の割合。依頼者: 黒がなければ、どちらかといえば先に出た方を吊る
-CATS = ("off", "hidden", "open", "counter")
-CAT_NAME = {"off": "猫又の力なし", "hidden": "猫又は隠れている", "open": "猫又は名乗っている", "counter": "猫又は名乗り、対抗猫が出る"}
+FAKE_CAT_FIRST = 0.6             # 仮。counter で、猫が2人名乗ったとき、先に出た方が偽の割合。依頼者: 黒がなければ、どちらかといえば先に出た方を吊る
+FAKE_CAT_PROACTIVE = 0.15        # 仮。gidra で、偽の猫が、真猫より先に自分から出ている割合(依頼者の「先に出たのが偽は6割くらい」に近づくように置いた。占いロラで 0.66)
+GIDRA_CAT = 1.0                  # 依頼者の話(指定されてのギドラは推奨。指示役が単体で出してほしいと言えば、単体で出る)。指定された猫が名乗る割合
+CATS = ("off", "hidden", "open", "counter", "gidra")
+CAT_NAME = {"off": "猫又の力なし", "hidden": "猫又は隠れている", "open": "猫又は名乗っている", "counter": "猫又は名乗り、対抗猫が出る",
+            "gidra": "猫又は隠れていて、黒を刺されたら・指定されたら名乗る"}
 POLICIES = ("grey", "roll_keep", "roll_stop", "roll")
 POLICY_NAME = {"grey": "グレー", "roll_keep": "占いロラ", "roll_stop": "黒スト", "roll": "ロラ完遂"}
 BITES = ("grey", "claim")
@@ -139,17 +150,23 @@ def night_result(seer_role: str, target_role: str, rng: random.Random) -> str:
     return "黒" if rng.random() < black else "白"
 
 
-def counter_cat(roles: dict[str, str], alive: set[str], claimants: set[str], rng: random.Random) -> tuple[str | None, bool]:
-    """名乗った猫又に対抗して出る偽の猫と、その人が先に出たか。(名乗りでない人狼か狂人から。出ないときは (None, False))"""
-    if rng.random() >= COUNTER_CAT:
-        return None, False
+def pick_fake_cat(roles: dict[str, str], alive: set[str], claimants: set[str], rng: random.Random) -> str | None:
+    """偽の猫になる人: 占いを名乗っていない人狼(COUNTER_CAT_WOLF の割合)か狂人。いなければ None。"""
     free = [p for p in sorted(alive) if p not in claimants]
     wolves = [p for p in free if roles[p] == "人狼"]
     mads = [p for p in free if roles[p] == "狂人"]
     pool = (wolves if rng.random() < COUNTER_CAT_WOLF else mads) or wolves or mads
-    if not pool:
+    return rng.choice(pool) if pool else None
+
+
+def counter_cat(roles: dict[str, str], alive: set[str], claimants: set[str], rng: random.Random) -> tuple[str | None, bool]:
+    """名乗った猫又に対抗して出る偽の猫と、その人が先に出たか。(名乗りでない人狼か狂人から。出ないときは (None, False))"""
+    if rng.random() >= COUNTER_CAT:
         return None, False
-    return rng.choice(pool), rng.random() < FAKE_CAT_FIRST
+    fake = pick_fake_cat(roles, alive, claimants, rng)
+    if fake is None:
+        return None, False
+    return fake, rng.random() < FAKE_CAT_FIRST
 
 
 def play(prep: Prepared, roles: dict[str, str], policy: str, bite: str, rng: random.Random, trace: list | None = None,
@@ -167,9 +184,16 @@ def play(prep: Prepared, roles: dict[str, str], policy: str, bite: str, rng: ran
     for p in board.dead:                                  # 盤面にすでにある死者
         alive.discard(p)
     real_cat = next((p for p in sorted(alive) if roles[p] == "猫又"), None)
-    fake_cat, fake_first = None, False                    # 対抗の猫(偽)と、先に出たのが偽か
+    revealed = cat in ("open", "counter") and real_cat is not None        # 真猫が名乗っているか(gidra は、出る条件を満たすまで隠れている)
+    fake_cat, fake_first, fake_out = None, False, False   # 偽の猫、先に出たのが偽か、偽の猫が名乗っているか
     if cat == "counter" and real_cat is not None:
         fake_cat, fake_first = counter_cat(roles, alive, claimants, rng)
+        fake_out = fake_cat is not None
+    elif cat == "gidra" and real_cat is not None and rng.random() < FAKE_CAT_PROACTIVE:
+        fake_cat = pick_fake_cat(roles, alive, claimants, rng)             # 偽の猫が、真猫より先に自分から出ている
+        fake_first = fake_out = fake_cat is not None
+        if fake_out and trace is not None:
+            trace.append(("fakecat", fake_cat, "先に出る"))
     blacks = sorted({r["target"] for r in board.results if r["color"] == "黒" and r["target"] in alive}, key=lambda p: -prep.wolf_prob[p])
     order = sorted(prep.seers, key=lambda p: (-prep.wolf_prob[p], rng.random()))
     kept = order[-1] if order else None                   # 本物と見る占い(狼の見込みがいちばん低い名乗り)
@@ -186,12 +210,25 @@ def play(prep: Prepared, roles: dict[str, str], policy: str, bite: str, rng: ran
 
     def cats() -> tuple[bool, str | None, set[str]]:
         """(猫が2人名乗っていて決着前か, 偽と分かった猫, 名乗っている猫)。猫又の道連れが起きれば、どちらが本物か分かる。"""
-        if cat not in ("open", "counter") or real_cat is None:
+        if cat == "off" or cat == "hidden" or real_cat is None:
             return False, None, set()
-        real_alive = real_cat in alive
-        fake_alive = fake_cat is not None and fake_cat in alive
-        exposed = ({real_cat} if real_alive else set()) | ({fake_cat} if real_alive and fake_alive else set())
-        return real_alive and fake_alive, (fake_cat if fake_alive and not real_alive else None), exposed
+        real_out = revealed and real_cat in alive
+        fake_alive = fake_out and fake_cat is not None and fake_cat in alive
+        exposed = ({real_cat} if real_out else set()) | ({fake_cat} if fake_alive and real_out else set())
+        return real_out and fake_alive, (fake_cat if fake_alive and real_cat not in alive else None), exposed
+
+    def reveal(reason: str) -> None:
+        """真猫が名乗る。偽の猫がまだ出ていなければ、COUNTER_CAT の割合で、あとから対抗の猫が出る。"""
+        nonlocal revealed, fake_cat, fake_first, fake_out
+        revealed = True
+        if trace is not None:
+            trace.append(("cat", real_cat, reason))
+        if not fake_out and rng.random() < COUNTER_CAT:
+            fake = pick_fake_cat(roles, alive, claimants, rng)
+            if fake is not None:
+                fake_cat, fake_first, fake_out = fake, False, True
+                if trace is not None:
+                    trace.append(("fakecat", fake, "あとから出る"))
 
     def hang(target: str) -> None:
         alive.discard(target)
@@ -227,13 +264,47 @@ def play(prep: Prepared, roles: dict[str, str], policy: str, bite: str, rng: ran
                 elif c == "白":
                     safe.add(t)
         reports = []
+        alive_blacks = [p for p in blacks if p in alive]
+        if cat == "gidra" and real_cat in alive and not revealed:
+            if fake_out and fake_cat in alive:
+                reveal("対抗")                            # 偽の猫が出ているので、真猫は対抗として露出する(依頼者: 対抗が居たら基本的に露出)
+            elif real_cat in alive_blacks:
+                reveal("黒")                              # 黒を刺された猫は、必ず出る(依頼者)
         pending, known_fake, exposed = cats()
-        all_greys = [p for p in alive if p not in claimants and p not in exposed] or [p for p in alive if p not in claimants]
-        greys = [p for p in all_greys if p not in safe] or all_greys      # 白を貰った灰は、無作為の吊りから外す
+
+        def grey_pool() -> list[str]:
+            everyone = [p for p in alive if p not in claimants and p not in exposed] or [p for p in alive if p not in claimants]
+            return [p for p in everyone if p not in safe] or everyone      # 白を貰った灰は、無作為の吊りから外す
+
         alive_seers = [p for p in order if p in alive]
         hanged_seer_colors = [colors.get(p) for p in order if p not in alive]
+
+        def by_policy(greys: list[str]) -> str | None:
+            if policy == "grey":
+                return rng.choice(sorted(greys)) if greys else None
+            if policy == "roll":
+                return alive_seers[0] if alive_seers else (rng.choice(sorted(greys)) if greys else None)
+            if policy == "roll_keep":
+                rolling = [p for p in alive_seers if p != order[-1]]           # いちばん狼の見込みが低い人は残す
+                return rolling[0] if rolling else (rng.choice(sorted(greys)) if greys else None)
+            if policy == "roll_stop":
+                others = [p for p in alive_seers if p != order[-1]]
+                last_is_wolf = sum(1 for c in hanged_seer_colors if c == "白") == len(order) - 1 and order[-1] in alive_seers
+                if "黒" in hanged_seer_colors:
+                    return rng.choice(sorted(greys)) if greys else (alive_seers[0] if alive_seers else None)
+                if others:
+                    return others[0]
+                if last_is_wolf:
+                    return order[-1]                                            # ほかの名乗りが全員白なら、最後の1人は人狼と決まる
+                return rng.choice(sorted(greys)) if greys else (alive_seers[0] if alive_seers else None)
+            raise ValueError(f"知らない進行: {policy}")
+
+        def fallback() -> str:
+            rest = sorted(alive_seers) or sorted(alive)                         # 候補が尽きたとき: 占い、霊能、残る誰か
+            return rng.choice(rest)
+
         target = None
-        alive_blacks = [p for p in blacks if p in alive]
+        from_policy = False
         side = sorted(p for p in alive if roles[p] in ("人狼", "狂人"))                 # 人外側(人狼と狂人)
         villagers = sorted(p for p in alive if roles[p] not in ("人狼", "狂人"))
         if rpp and villagers and any(roles[p] == "狂人" for p in side) and len(side) >= len(villagers):
@@ -254,29 +325,21 @@ def play(prep: Prepared, roles: dict[str, str], policy: str, bite: str, rng: ran
             target = known_fake                           # 本物の猫が先に死んで、偽と分かった猫
         elif pending:
             target = fake_cat if fake_first else real_cat # 猫が2人名乗っている: 黒がなければ、先に出た方を吊る(吊った猫の道連れで、本物か分かる)
-        elif policy == "grey":
-            target = rng.choice(sorted(greys)) if greys else None
-        elif policy == "roll":
-            target = alive_seers[0] if alive_seers else (rng.choice(sorted(greys)) if greys else None)
-        elif policy == "roll_keep":
-            rolling = [p for p in alive_seers if p != order[-1]]           # いちばん狼の見込みが低い人は残す
-            target = rolling[0] if rolling else (rng.choice(sorted(greys)) if greys else None)
-        elif policy == "roll_stop":
-            others = [p for p in alive_seers if p != order[-1]]
-            last_is_wolf = sum(1 for c in hanged_seer_colors if c == "白") == len(order) - 1 and order[-1] in alive_seers
-            if "黒" in hanged_seer_colors:
-                target = rng.choice(sorted(greys)) if greys else (alive_seers[0] if alive_seers else None)
-            elif others:
-                target = others[0]
-            elif last_is_wolf:
-                target = order[-1]                                          # ほかの名乗りが全員白なら、最後の1人は人狼と決まる
-            else:
-                target = rng.choice(sorted(greys)) if greys else (alive_seers[0] if alive_seers else None)
         else:
-            raise ValueError(f"知らない進行: {policy}")
-        if target is None:                                # 候補が尽きたとき: 占い、霊能、残る誰か
-            rest = sorted(alive_seers) or sorted(alive)
-            target = rng.choice(rest)
+            target = by_policy(grey_pool())
+            if target is None:
+                target = fallback()
+            from_policy = True
+        if from_policy and cat == "gidra" and target == real_cat and not revealed and rng.random() < GIDRA_CAT:
+            # 吊りを指定された猫は、単体で名乗って(ギドラ)、吊りを避ける。対抗猫が出れば猫吊り、出なければ吊り先を選び直す
+            reveal("指定")
+            pending, known_fake, exposed = cats()
+            if pending:
+                target = fake_cat if fake_first else real_cat
+            else:
+                target = by_policy(grey_pool())
+                if target is None:
+                    target = fallback()
         hang(target)
         wolves, humans = counts()
         if wolves == 0:
