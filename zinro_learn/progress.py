@@ -46,7 +46,9 @@
   吊った猫が本物なら、道連れが起きる(依頼者: 道連れが起きたらほぼ負け)。道連れが起きなければ、偽を吊れたと分かるので、
   残る猫は本物として吊らない(放置)。本物が先に死んで偽が残ったら、その偽を、黒先のあとに吊る。
   gidra: 猫又は隠れていて、昼1に出るのは、黒を刺されたとき(必ず出る)と、吊りを指定されたとき(単体で名乗る=ギドラ。狩人は出ない)だけ
-  (依頼者。2-2・3-1 では出方が違うと聞いたが、まだ入れていない)。出たあとの流れは counter と同じ(対抗猫が COUNTER_CAT で、あとから出る)。
+  (依頼者)。黒を刺された猫は、進行が先黒吊りなら必ず出る(伏せたまま吊られることはない)。名乗っても、黒先として吊られる(貫通される)。人狼側は猫を
+  確定させたくないので、対抗猫がほぼ出る(COUNTER_CAT_BLACK)。占いロラ進行になったときは、猫が伏せることがあると聞いたが、まだ入れていない
+  (どの進行も黒先を先に吊るため。いまの環境では、先黒吊りになる可能性が高い)。指定されて出た猫の対抗猫は、COUNTER_CAT で、あとから出る。
   指定されて出た猫に対抗猫が出なければ、村は吊り先を選び直す(猫は確定して放置)。出れば猫吊りで、先に出た本物を吊る形になる。
   偽の猫が、真猫より先に自分から出ることもある(FAKE_CAT_PROACTIVE の割合で、試合の初めから出ている)。そのときは、真猫が対抗として露出し、
   先に出た偽の猫を吊る形になる。先に出たのが偽の割合は、この2つの流れの比で決まる(依頼者の「6割くらい」に近づくように置いた)。
@@ -83,6 +85,7 @@ COUNTER_CAT = 0.7                # 依頼者の話(その割合でよい。対�
 COUNTER_CAT_WOLF = 0.7           # 依頼者の話(その割合でよい)。対抗の猫が人狼の割合(残りは狂人。人狼 : 狂人 = 7 : 3)
 FAKE_CAT_FIRST = 0.6             # 仮。counter で、猫が2人名乗ったとき、先に出た方が偽の割合。依頼者: 黒がなければ、どちらかといえば先に出た方を吊る
 FAKE_CAT_PROACTIVE = 0.15        # 仮。gidra で、偽の猫が、真猫より先に自分から出ている割合(依頼者の「先に出たのが偽は6割くらい」に近づくように置いた。占いロラで 0.66)
+COUNTER_CAT_BLACK = 0.9           # 仮。黒を刺された猫が名乗ると、人狼側は猫を確定させたくないので、対抗猫がほぼ出る(依頼者: 対抗が出て、真猫が貫通されるのが基本)
 GIDRA_CAT = 1.0                  # 依頼者の話(指定されてのギドラは推奨。指示役が単体で出してほしいと言えば、単体で出る)。指定された猫が名乗る割合
 CATS = ("off", "hidden", "open", "counter", "gidra")
 CAT_NAME = {"off": "猫又の力なし", "hidden": "猫又は隠れている", "open": "猫又は名乗っている", "counter": "猫又は名乗り、対抗猫が出る",
@@ -223,7 +226,7 @@ def play(prep: Prepared, roles: dict[str, str], policy: str, bite: str, rng: ran
         revealed = True
         if trace is not None:
             trace.append(("cat", real_cat, reason))
-        if not fake_out and rng.random() < COUNTER_CAT:
+        if not fake_out and rng.random() < (COUNTER_CAT_BLACK if reason == "黒" else COUNTER_CAT):
             fake = pick_fake_cat(roles, alive, claimants, rng)
             if fake is not None:
                 fake_cat, fake_first, fake_out = fake, False, True

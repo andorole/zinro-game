@@ -4,7 +4,7 @@ from unittest import mock
 
 from zinro_learn.board import FAKE_BLACK_FIRST, Board, ROLES_12A_NEKO
 from zinro_learn.progress import (
-    BITES, CATS, COUNTER_CAT, COUNTER_CAT_WOLF, ENCLOSE_NEXT, FAKE_BLACK_LATER, FAKE_CAT_FIRST, FAKE_CAT_PROACTIVE, GIDRA_CAT, GUARDS,
+    BITES, CATS, COUNTER_CAT, COUNTER_CAT_BLACK, COUNTER_CAT_WOLF, ENCLOSE_NEXT, FAKE_BLACK_LATER, FAKE_CAT_FIRST, FAKE_CAT_PROACTIVE, GIDRA_CAT, GUARDS,
     OPEN_CAT_BITE, POLICIES, compare, compare_text, counter_cat, hit_rates, night_result, play, prepare, sample_world, win_rate,
 )
 
@@ -436,6 +436,23 @@ class GidraCatTest(unittest.TestCase):
             play(prep, roles, "roll_keep", "grey", FirstRng(), trace, seer_results=False, cat="gidra")
         self.assertEqual([t[:2] for t in trace[:4]], [("cat", "E"), ("fakecat", "C"), ("hang", "E"), ("takealong", "A")])    # 名乗っても、黒先として吊られる(道連れは、先頭の生存者)
         self.assertEqual(trace[0], ("cat", "E", "黒"))
+
+    def test_a_black_given_cat_draws_a_counter_cat_far_more_often_than_a_designated_one(self):
+        """依頼者: 黒を刺された猫が出ると、人狼側は確定させたくないので、対抗が出て、真猫が貫通されるのが基本。"""
+        self.assertGreater(COUNTER_CAT_BLACK, COUNTER_CAT)
+        board = Board(players=list("ABCDEFGHIJK"), roles=dict(ROLES_12A_NEKO), rco=True)
+        board.claims = [("A", "占い師"), ("B", "占い師"), ("K", "霊能者")]
+        board.results = [dict(kind="占い", first=True, player="A", target="E", color="黒")]
+        prep = prepare(board)
+        roles = {"A": "人狼", "B": "占い師", "C": "人狼", "D": "狂人", "E": "猫又", "F": "村人", "G": "村人", "H": "村人", "I": "狩人", "J": "人狼", "K": "霊能者"}
+        with mock.patch("zinro_learn.progress.FAKE_CAT_PROACTIVE", 0.0), mock.patch("zinro_learn.progress.COUNTER_CAT", 0.0):
+            trace: list = []
+            play(prep, roles, "roll_keep", "grey", FirstRng(), trace, seer_results=False, cat="gidra")
+            self.assertIn(("fakecat", "C", "あとから出る"), trace)           # 指定なら出ない設定(0.0)でも、黒を刺された猫には対抗が出る
+            with mock.patch("zinro_learn.progress.COUNTER_CAT_BLACK", 0.0):
+                trace = []
+                play(prep, roles, "roll_keep", "grey", FirstRng(), trace, seer_results=False, cat="gidra")
+                self.assertNotIn("fakecat", [t[0] for t in trace])
 
     def test_a_fake_cat_that_comes_out_first_makes_the_real_cat_expose_and_the_earlier_fake_is_hanged(self):
         prep, roles = self._ten()
