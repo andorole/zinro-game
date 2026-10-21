@@ -4,7 +4,7 @@ from unittest import mock
 
 from zinro_learn.board import FAKE_BLACK_FIRST, Board, ROLES_12A_NEKO
 from zinro_learn.progress import (
-    BITES, CATS, COUNTER_CAT, COUNTER_CAT_BLACK, COUNTER_CAT_WOLF, ENCLOSE_NEXT, FAKE_BLACK_LATER, FAKE_CAT_FIRST, FAKE_CAT_PROACTIVE, GIDRA_CAT, GUARDS,
+    BITES, CAT_HIDE_SEERS_FIRST, CATS, COUNTER_CAT, COUNTER_CAT_BLACK, COUNTER_CAT_WOLF, ENCLOSE_NEXT, FAKE_BLACK_LATER, FAKE_CAT_FIRST, FAKE_CAT_PROACTIVE, GIDRA_CAT, GUARDS,
     OPEN_CAT_BITE, POLICIES, compare, compare_text, counter_cat, hit_rates, night_result, play, prepare, sample_world, win_rate,
 )
 
@@ -494,6 +494,65 @@ class GidraCatTest(unittest.TestCase):
         self.assertAlmostEqual(first / (first + later), 0.6, delta=0.12)
         self.assertEqual(GIDRA_CAT, 1.0)
         self.assertLess(FAKE_CAT_PROACTIVE, 0.5)
+
+
+class SeersFirstTest(unittest.TestCase):
+    """進行提示: 先黒吊り(黒を出された人を先に吊る)と、占い吊り優先(占いの名乗りを先に吊り、黒先は占いのあと)。"""
+
+    def _board(self, target: str):
+        board = Board(players=list("ABCDEFGHIJK"), roles=dict(ROLES_12A_NEKO), rco=True)
+        board.claims = [("A", "占い師"), ("B", "占い師"), ("C", "占い師"), ("K", "霊能者")]
+        board.results = [dict(kind="占い", first=True, player="A", target=target, color="黒")]
+        prep = prepare(board)
+        prep.wolf_prob.update({"A": 0.0, "B": 0.9, "C": 0.8})          # 村は A を本物と見て、B・C の順に吊る
+        roles = {"A": "占い師", "B": "人狼", "C": "狂人", "D": "村人", "E": "村人", "F": "村人", "G": "人狼", "H": "人狼", "I": "狩人", "J": "猫又", "K": "霊能者"}
+        return prep, roles
+
+    def test_black_first_hangs_the_black_target_and_seers_first_hangs_the_seers_before_it(self):
+        prep, roles = self._board("F")                                  # 狼の噛みは、灰の先頭から(D、E)なので、F は残る
+        trace: list = []
+        play(prep, roles, "roll_keep", "grey", FirstRng(), trace, seer_results=False)
+        self.assertEqual(trace[0], ("hang", "F", "人間"))                   # 先黒吊り: 黒を出された F
+        trace = []
+        play(prep, roles, "roll_keep", "grey", FirstRng(), trace, seer_results=False, black_first=False)
+        self.assertEqual(trace[0], ("hang", "B", "人狼"))                   # 占い吊り優先: 狼の見込みが高い B(本物と見る A は残す)
+        hangs = [t[1] for t in trace if t[0] == "hang"]
+        self.assertEqual(hangs[:3], ["B", "C", "F"])                        # 占いを吊り終えたら、黒先 F
+
+    def test_the_grey_progression_has_no_seer_to_hang_so_black_first_comes_back_at_once(self):
+        prep, roles = self._board("F")
+        a: list = []
+        b: list = []
+        play(prep, roles, "grey", "grey", FirstRng(), a, seer_results=False)
+        play(prep, roles, "grey", "grey", FirstRng(), b, seer_results=False, black_first=False)
+        self.assertEqual(a[0], b[0])
+        self.assertEqual(a[0], ("hang", "F", "人間"))
+
+    def test_a_black_given_cat_may_stay_hidden_when_the_seers_are_hanged_first_and_comes_out_only_when_it_is_her_turn(self):
+        prep, roles = self._board("J")                                  # 黒を刺された J が真猫
+        with mock.patch("zinro_learn.progress.FAKE_CAT_PROACTIVE", 0.0), mock.patch("zinro_learn.progress.CAT_HIDE_SEERS_FIRST", 1.0):
+            trace: list = []
+            play(prep, roles, "roll_keep", "grey", FirstRng(), trace, seer_results=False, cat="gidra", black_first=False)
+        self.assertEqual(trace[0], ("hang", "B", "人狼"))                   # 伏せていて、占いが吊られる
+        names = [t[:2] for t in trace]
+        self.assertNotIn(("cat", "J"), names[:6])
+        self.assertLess(names.index(("hang", "C")), names.index(("cat", "J")))             # 占いを吊り終えて、黒先として吊られる番に、名乗る
+        self.assertLess(names.index(("cat", "J")), names.index(("hang", "J")))
+        self.assertEqual(trace[names.index(("cat", "J"))], ("cat", "J", "黒"))
+        with mock.patch("zinro_learn.progress.FAKE_CAT_PROACTIVE", 0.0), mock.patch("zinro_learn.progress.CAT_HIDE_SEERS_FIRST", 0.0):
+            trace = []
+            play(prep, roles, "roll_keep", "grey", FirstRng(), trace, seer_results=False, cat="gidra", black_first=False)
+        self.assertEqual(trace[0], ("cat", "J", "黒"))                      # 伏せなければ、朝のうちに名乗る
+        self.assertEqual(trace[1][0], "fakecat")                            # 人狼側は確定させたくないので、対抗猫が出る
+        self.assertLess(CAT_HIDE_SEERS_FIRST, 1.0)
+
+    def test_seers_first_does_not_change_the_result_when_the_black_is_on_a_seer(self):
+        board = Board(players=list("ABCDEFGHIJK"), roles=dict(ROLES_12A_NEKO), rco=True)
+        board.claims = [("A", "占い師"), ("B", "占い師"), ("C", "占い師"), ("K", "霊能者")]
+        board.results = [dict(kind="占い", first=True, player="A", target="B", color="黒")]
+        first = win_rate(board, "roll_keep", "grey", n=6000, seed=3, cat="gidra", guard="env")["rate"]
+        second = win_rate(board, "roll_keep", "grey", n=6000, seed=3, cat="gidra", guard="env", black_first=False)["rate"]
+        self.assertAlmostEqual(first, second, delta=0.03)                   # B は占いの名乗りで、狼の見込みが高く、どちらでも先に吊られる
 
 
 class RppTest(unittest.TestCase):
