@@ -555,6 +555,60 @@ class SeersFirstTest(unittest.TestCase):
         self.assertAlmostEqual(first, second, delta=0.03)                   # B は占いの名乗りで、狼の見込みが高く、どちらでも先に吊られる
 
 
+class ReadsTest(unittest.TestCase):
+    """村の読み: 霊能の報告と食い違う結果を出した占いは偽と分かる(結果は信じず、先に吊る)。黒を当てた占いは、本物と見る。"""
+
+    def _board(self, black_by: str, target: str):
+        board = Board(players=list("ABCDEFGHIJK"), roles=dict(ROLES_12A_NEKO), rco=True)
+        board.claims = [("A", "占い師"), ("B", "占い師"), ("C", "占い師"), ("K", "霊能者")]
+        board.results = [dict(kind="占い", first=True, player=black_by, target=target, color="黒")]
+        prep = prepare(board)
+        prep.wolf_prob.update({"A": 0.0, "B": 0.9, "C": 0.8})          # 村は A を本物と見る
+        return prep
+
+    def test_a_seer_whose_black_target_is_reported_white_is_found_fake_and_hanged_next(self):
+        prep = self._board("A", "F")
+        roles = {"A": "人狼", "B": "占い師", "C": "狂人", "D": "村人", "E": "村人", "F": "村人", "G": "人狼", "H": "人狼", "I": "狩人", "J": "猫又", "K": "霊能者"}
+        trace: list = []
+        play(prep, roles, "roll_keep", "grey", FirstRng(), trace, seer_results=False)
+        names = [t[:2] for t in trace]
+        self.assertEqual(names[0], ("hang", "F"))                           # 黒先 F(実は村人)
+        self.assertIn(("report", "F", "白"), trace)
+        self.assertIn(("refuted", "A", "F黒"), trace)                       # 黒を出した A は偽と分かる
+        self.assertLess(names.index(("report", "F")), names.index(("hang", "A")))
+        self.assertLess(names.index(("hang", "A")), names.index(("hang", "B")))        # B・C より先に、偽と分かった A を吊る
+        trace = []
+        play(prep, roles, "roll_keep", "grey", FirstRng(), trace, seer_results=False, reads=False)
+        self.assertEqual([t[1] for t in trace if t[0] == "hang"][:2], ["F", "B"])      # 読まなければ、A を信じつづけて、B を吊る
+        self.assertNotIn("refuted", [t[0] for t in trace])
+
+    def test_a_seer_who_hit_a_black_is_trusted_and_the_other_is_hanged(self):
+        prep = self._board("B", "F")
+        roles = {"A": "人狼", "B": "占い師", "C": "狂人", "D": "村人", "E": "村人", "F": "人狼", "G": "人狼", "H": "村人", "I": "狩人", "J": "猫又", "K": "霊能者"}
+        trace: list = []
+        play(prep, roles, "roll_keep", "grey", FirstRng(), trace, seer_results=False)
+        hangs = [t[1] for t in trace if t[0] == "hang"]
+        self.assertEqual(hangs[0], "F")                                     # 黒先 F は人狼(霊能の報告も黒)
+        self.assertIn(hangs[1], ("C", "A"))                                 # 黒を当てた B を残して、それまで本物と見ていた A も、C も吊る
+        self.assertNotIn("B", hangs[:3])
+        trace = []
+        play(prep, roles, "roll_keep", "grey", FirstRng(), trace, seer_results=False, reads=False)
+        self.assertEqual([t[1] for t in trace if t[0] == "hang"][:2], ["F", "B"])      # 読まなければ、本物の B を吊る
+
+    def test_without_the_medium_nothing_is_learned(self):
+        board = Board(players=list("ABCDEFGHIJK"), roles=dict(ROLES_12A_NEKO), rco=True)
+        board.claims = [("B", "占い師"), ("C", "占い師"), ("D", "占い師"), ("A", "霊能者")]
+        board.results = [dict(kind="占い", first=True, player="B", target="G", color="黒")]
+        prep = prepare(board)
+        prep.wolf_prob.update({"B": 0.0, "C": 0.9, "D": 0.8})
+        roles = {"A": "霊能者", "B": "人狼", "C": "占い師", "D": "狂人", "E": "村人", "F": "村人", "G": "村人", "H": "人狼", "I": "狩人", "J": "猫又", "K": "人狼"}
+        trace: list = []
+        play(prep, roles, "roll_keep", "claim", FirstRng(), trace, seer_results=False)          # 名乗りを噛む: 霊能 A が噛まれて、報告が出ない
+        self.assertEqual([t[:2] for t in trace[:2]], [("hang", "G"), ("bite", "A")])
+        self.assertNotIn("refuted", [t[0] for t in trace])
+        self.assertEqual([t[1] for t in trace if t[0] == "hang"][:2], ["G", "C"])             # B を信じつづけて、C を吊る
+
+
 class RppTest(unittest.TestCase):
     """同数のときの票(依頼者の説明): 人外側(人狼と狂人)が村と同数なら、同数で抽選(RPP)。上回れば通る(PP)。"""
 
@@ -643,8 +697,8 @@ class ComparisonTest(unittest.TestCase):
         board = neko("ABC")
         table = compare(board, n=6000, seed=4, cat="off")                   # 猫又の道連れは、別に確かめる
         grey, keep, stop = (table[("grey", p)]["rate"] for p in ("grey", "roll_keep", "roll_stop"))
-        self.assertGreater(keep, grey + 0.1)
-        self.assertGreater(stop, grey + 0.15)
+        self.assertGreater(keep, grey + 0.05)
+        self.assertGreater(stop, grey + 0.1)
         # 狼が名乗りを噛むと、灰だけ吊る進行は、名乗りの中の狼を吊れず、まず勝てない
         self.assertLess(table[("claim", "grey")]["rate"], 0.02)
         self.assertGreater(table[("claim", "roll_keep")]["rate"], 0.1)
