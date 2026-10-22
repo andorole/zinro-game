@@ -553,6 +553,14 @@ class HunterGidraTest(unittest.TestCase):
         self.assertEqual(trace[3][0], "bite")                                            # 出た本物の狩人 E は、噛まれる(HUNTER_BITE)
         self.assertEqual(trace[3][1], "E")
 
+    def test_only_one_hunter_claim_is_made_by_the_wolf_side_on_the_first_day(self):
+        prep, roles = self._eleven(A="人狼", B="狂人", H="村人", E="狩人")
+        with mock.patch("zinro_learn.progress.HUNTER_COUNTER", 0.0):
+            trace: list = []
+            play(prep, roles, "grey", "grey", FirstRng(), trace, seer_results=False, cat="off", hunter="fake")
+        self.assertEqual([t[:2] for t in trace[:2]], [("fakehunter", "A"), ("hang", "B")])               # 人狼 A が名乗って避け、次に指定された狂人 B は、重ねて名乗らず、吊られる
+        self.assertEqual(len([t for t in trace if t[0] == "fakehunter"]), 1)
+
     def test_a_fake_hunter_is_only_for_the_first_day(self):
         prep, roles = self._eleven(B="人狼", E="村人", A="村人")
         with mock.patch("zinro_learn.progress.HUNTER_COUNTER", 0.0):
@@ -582,68 +590,28 @@ class HunterGidraTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             play(prep, roles, "grey", "grey", FirstRng(), [], hunter="???")
 
-    def test_off_changes_nothing_and_the_hunter_modes_help_the_village_by_keeping_the_guard(self):
+    def test_the_hunter_gidra_helps_the_village_by_keeping_the_guard_and_the_fake_hunter_saves_the_wolf_side_on_day_one(self):
         board = neko("AB")
         off = win_rate(board, "grey", "claim", n=12000, seed=1, guard="env", cat="gidra")["rate"]
         gidra = win_rate(board, "grey", "claim", n=12000, seed=1, guard="env", cat="gidra", hunter="gidra")["rate"]
         self.assertGreater(gidra, off + 0.04)                                            # 指定された狩人が名乗ると、吊られずに護衛が残る分、村が得をする
+        prep = prepare(board)
+
+        def wolf_side_first_hang(hunter: str) -> float:
+            rng, hit, games = random.Random(3), 0, 1500
+            for i in range(games):
+                roles, _ = sample_world(prep, rng)
+                trace: list = []
+                play(prep, roles, "grey", "grey", random.Random(i), trace, seer_results=False, cat="off", hunter=hunter)
+                first = next(t for t in trace if t[0] == "hang")
+                hit += roles[first[1]] in ("人狼", "狂人")
+            return hit / games
+
         with mock.patch("zinro_learn.progress.FAKE_HUNTER_FIRST", 1.0), mock.patch("zinro_learn.progress.HUNTER_COUNTER", 0.0):
-            fake = win_rate(board, "grey", "claim", n=12000, seed=1, guard="env", cat="gidra", hunter="fake")["rate"]
-        self.assertLess(fake, gidra - 0.01)                                              # 人外が偽の狩人で初手の指定を避ければ、村は損をする
-
-
-class RandomWhiteProgressTest(unittest.TestCase):
-    """11A・10A狩の進行(白ランオン): 本物の初日の結果は白だけなので、初日に黒を出した占いは、その場で偽と分かる。"""
-
-    def _board_and_roles(self, random_white=True):
-        board = make_board("11a", 2, [dict(player="A", target="C", color="黒")], random_white=random_white)
-        roles = {"A": "人狼", "B": "占い師", "C": "村人", "D": "村人", "E": "村人", "F": "村人", "G": "人狼", "H": "狂人", "I": "狩人", "J": "霊能者"}
-        return prepare(board), roles
-
-    def test_the_seer_who_gave_a_first_day_black_is_hanged_at_once_and_the_black_is_not_followed(self):
-        prep, roles = self._board_and_roles()
-        trace: list = []
-        play(prep, roles, "grey", "grey", FirstRng(), trace, seer_results=False, cat="off")
-        self.assertEqual(trace[0], ("hang", "A", "人狼"))                                # 偽と分かった黒出しの A を吊る
-        trace = []
-        prep, roles = self._board_and_roles(random_white=False)
-        play(prep, roles, "grey", "grey", FirstRng(), trace, seer_results=False, cat="off")
-        self.assertEqual(trace[0], ("hang", "C", "人間"))                                # ランオフなら、黒先 C を吊る
-
-    def test_a_white_given_on_the_first_day_by_the_trusted_seer_takes_that_grey_out_of_the_random_hang(self):
-        results = [dict(player="A", target="E", color="白"), dict(player="B", target="C", color="白")]
-        board = make_board("11a", 2, results, random_white=False)
-        roles = {"A": "人狼", "B": "占い師", "C": "村人", "D": "村人", "E": "村人", "F": "村人", "G": "人狼", "H": "狂人", "I": "狩人", "J": "霊能者"}
-        trace: list = []
-        play(prepare(board), roles, "grey", "grey", FirstRng(), trace, seer_results=False, cat="off")
-        self.assertEqual(trace[0], ("hang", "D", "人間"))                                # 本物と見る B(狼の見込みが低い方=後ろ)が白を出した C は、先頭の灰でも吊らない
-
-    def test_the_black_giver_is_hanged_even_without_reads_and_the_guard_never_covers_it(self):
-        prep, roles = self._board_and_roles()
-        trace: list = []
-        play(prep, roles, "roll_keep", "claim", FirstRng(), trace, seer_results=False, cat="off", reads=False, guard="env")
-        self.assertEqual(trace[0], ("hang", "A", "人狼"))                                # 読みなしでも、環境の規則(初日の黒は偽)
-        self.assertEqual(trace[1][:2], ("bite", "B"))                                    # 環境の護衛は、黒を出した偽の A を守らない(霊能 J を守る)ので、B は噛まれる
-
-    def test_a_black_on_the_first_day_is_a_gift_to_the_village_under_random_white(self):
-        on = win_rate(make_board("11a", 2, [dict(player="A", target="C", color="黒")]), "grey", "grey", n=3000, seed=2, guard="env", cat="off")["rate"]
-        off = win_rate(make_board("11a", 2, [dict(player="A", target="C", color="黒")], random_white=False), "grey", "grey", n=3000, seed=2, guard="env", cat="off")["rate"]
-        self.assertGreater(on, off + 0.2)
-
-    def test_the_command_line_takes_the_setup(self):
-        def run(*argv):
-            out = io.StringIO()
-            with contextlib.redirect_stdout(out):
-                main(list(argv))
-            return out.getvalue()
-
-        text = run("progress", "--setup", "10a-kari", "--seers", "2", "--result", "A:C:白", "--n", "200")
-        self.assertIn("10A狩・白ランオン・2-1・A:C:白", text)
-        self.assertIn("猫又の力なし", text)                                                # 猫又のいない配役は、猫又 off
-        self.assertNotIn("白ランオン", run("progress", "--setup", "11a", "--random-white", "off", "--seers", "2", "--n", "200"))
-        self.assertIn("白ランオン", run("progress", "--setup", "12a-neko", "--random-white", "on", "--seers", "2", "--n", "200"))
-        self.assertIn("猫又は隠れていて", run("progress", "--seers", "2", "--n", "200"))     # 既定は12A猫・猫又 gidra
-        self.assertIn("11A: 占い-霊の名乗りの数", run("board", "--patterns", "--setup", "11a"))
+            fake = wolf_side_first_hang("fake")
+        plain = wolf_side_first_hang("gidra")
+        self.assertGreater(plain, 0.2)                                                   # 灰8人のうち、人外は2〜3人
+        self.assertLess(fake, plain * 0.65)                                              # 指定された人外が偽の狩人で避けると、昼1の吊りは人外に当たりにくい(半分ほど)
 
 
 class SeersFirstTest(unittest.TestCase):

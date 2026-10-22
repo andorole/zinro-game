@@ -440,8 +440,8 @@ def play(prep: Prepared, roles: dict[str, str], policy: str, bite: str, rng: ran
                     break
                 spared = True
             elif (hunter == "fake" and night == 0 and roles[target] in ("人狼", "狂人") and target not in claimants
-                  and real_hunter not in hunter_out and rng.random() < FAKE_HUNTER_FIRST):
-                # 黒なしで昼1に指定された人狼・狂人は、偽の狩人COで吊りを避ける(狩貫通は初手にはしない)
+                  and not hunter_out and rng.random() < FAKE_HUNTER_FIRST):
+                # 黒なしで昼1に指定された人狼・狂人は、偽の狩人COで吊りを避ける(狩貫通は初手にはしない)。狩人の名乗りが出たあとは、重ねて名乗らない
                 hunter_out.append(target)
                 if trace is not None:
                     trace.append(("fakehunter", target, "指定"))
