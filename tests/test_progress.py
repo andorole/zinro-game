@@ -4,8 +4,9 @@ from unittest import mock
 
 from zinro_learn.board import FAKE_BLACK_FIRST, Board, ROLES_12A_NEKO
 from zinro_learn.progress import (
-    BITES, CAT_HIDE_SEERS_FIRST, CATS, COUNTER_CAT, COUNTER_CAT_BLACK, COUNTER_CAT_WOLF, ENCLOSE_NEXT, FAKE_BLACK_LATER, FAKE_CAT_FIRST, FAKE_CAT_PROACTIVE, GIDRA_CAT, GUARDS,
-    OPEN_CAT_BITE, POLICIES, compare, compare_text, counter_cat, hit_rates, night_result, play, prepare, sample_world, win_rate,
+    BITES, CAT_HIDE_SEERS_FIRST, CATS, COUNTER_CAT, COUNTER_CAT_BLACK, COUNTER_CAT_WOLF, ENCLOSE_NEXT, FAKE_BLACK_LATER, FAKE_CAT_FIRST, FAKE_CAT_PROACTIVE, FAKE_HUNTER_FIRST,
+    GIDRA_CAT, GIDRA_HUNTER, GUARDS, HUNTER_BITE, HUNTER_COUNTER, HUNTER_NAME, HUNTERS, OPEN_CAT_BITE, POLICIES, compare, compare_text, counter_cat, hit_rates, night_result, play,
+    prepare, sample_world, win_rate,
 )
 
 
@@ -494,6 +495,98 @@ class GidraCatTest(unittest.TestCase):
         self.assertAlmostEqual(first / (first + later), 0.6, delta=0.12)
         self.assertEqual(GIDRA_CAT, 1.0)
         self.assertLess(FAKE_CAT_PROACTIVE, 0.5)
+
+
+class HunterGidraTest(unittest.TestCase):
+    """狩人のギドラ(依頼者): 本指定のタイミングで、狩もギドラCOをする。初手の回避は狩が良いことがある(狩貫通は初手にはしない)。"""
+
+    def _eleven(self, **swap):
+        # A が真の狩人。E・F・G が人狼、H が狂人、I が占い(名乗らない)、J が猫又、K が霊能(名乗る)
+        board = Board(players=list("ABCDEFGHIJK"), roles=dict(ROLES_12A_NEKO), rco=False)
+        board.claims = [("K", "霊能者")]
+        roles = {"A": "狩人", "B": "村人", "C": "村人", "D": "村人", "E": "人狼", "F": "人狼", "G": "人狼", "H": "狂人", "I": "占い師", "J": "猫又", "K": "霊能者"}
+        roles.update(swap)
+        return prepare(board), roles
+
+    def test_a_designated_hunter_comes_out_and_the_village_picks_someone_else(self):
+        prep, roles = self._eleven()
+        trace: list = []
+        play(prep, roles, "grey", "claim", FirstRng(), trace, seer_results=False, cat="off", hunter="gidra")
+        self.assertEqual(trace[:3], [("hunter", "A", "指定"), ("hang", "B", "人間"), ("bite", "A", "")])      # 先頭の灰 A は名乗って吊りを避け、B が吊られる。名乗った A は噛まれる
+        off: list = []
+        play(prep, roles, "grey", "claim", FirstRng(), off, seer_results=False, cat="off")
+        self.assertEqual(off[0], ("hang", "A", "人間"))                                   # 名乗らなければ、そのまま吊られる
+
+    def test_a_hunter_who_has_come_out_is_bitten_only_with_the_stated_share(self):
+        prep, roles = self._eleven()
+        with mock.patch("zinro_learn.progress.HUNTER_BITE", 0.0):
+            trace: list = []
+            play(prep, roles, "grey", "claim", FirstRng(), trace, seer_results=False, cat="off", hunter="gidra")
+        self.assertEqual(trace[:3], [("hunter", "A", "指定"), ("hang", "B", "人間"), ("bite", "K", "")])      # 噛みに来なければ、いつもどおり名乗りの霊能 K を噛む
+
+    def test_a_hunter_who_has_come_out_is_not_hanged_while_other_greys_remain(self):
+        prep, roles = self._eleven()
+        with mock.patch("zinro_learn.progress.HUNTER_BITE", 0.0):
+            trace: list = []
+            play(prep, roles, "grey", "grey", FirstRng(), trace, seer_results=False, cat="off", hunter="gidra", guard="medium")
+        hangs = [t[1] for t in trace if t[0] == "hang"]
+        self.assertNotIn("A", hangs[:4])                                                 # 狩COを偽と割り切って吊る(狩貫通)は入れていない
+
+    def test_a_wolf_designated_on_day_one_comes_out_as_a_fake_hunter_and_the_village_picks_someone_else(self):
+        prep, roles = self._eleven(A="人狼", E="狩人")
+        with mock.patch("zinro_learn.progress.HUNTER_COUNTER", 0.0):
+            trace: list = []
+            play(prep, roles, "grey", "grey", FirstRng(), trace, seer_results=False, cat="off", hunter="fake")
+        self.assertEqual(trace[:2], [("fakehunter", "A", "指定"), ("hang", "B", "人間")])                    # 初手は狩貫通をしない: 偽の A は吊られない
+        gidra: list = []
+        play(prep, roles, "grey", "grey", FirstRng(), gidra, seer_results=False, cat="off", hunter="gidra")
+        self.assertEqual(gidra[0], ("hang", "A", "人狼"))                                # gidra は本物の狩人だけ: 人外は名乗らず、吊られる
+
+    def test_the_real_hunter_can_come_out_against_the_fake_and_the_designated_fake_is_hanged(self):
+        prep, roles = self._eleven(A="人狼", E="狩人")
+        trace: list = []
+        play(prep, roles, "grey", "grey", FirstRng(), trace, seer_results=False, cat="off", hunter="fake")     # FirstRng の random() は 0.0: 対抗が出る側
+        self.assertEqual(trace[:3], [("fakehunter", "A", "指定"), ("hunter", "E", "対抗"), ("hang", "A", "人狼")])
+        self.assertEqual(trace[3][0], "bite")                                            # 出た本物の狩人 E は、噛まれる(HUNTER_BITE)
+        self.assertEqual(trace[3][1], "E")
+
+    def test_a_fake_hunter_is_only_for_the_first_day(self):
+        prep, roles = self._eleven(B="人狼", E="村人", A="村人")
+        with mock.patch("zinro_learn.progress.HUNTER_COUNTER", 0.0):
+            trace: list = []
+            play(prep, roles, "grey", "grey", FirstRng(), trace, seer_results=False, cat="off", hunter="fake")
+        self.assertEqual(trace[0], ("hang", "A", "人間"))                                # 先頭の灰 A は村人: 吊られる
+        later = [t for t in trace if t[0] == "fakehunter"]
+        self.assertTrue(all(t[1] != "B" for t in later))                                 # 2日目以降に指定された人外は、偽の狩人を名乗らない(入れていない)
+
+    def test_a_real_hunter_who_comes_out_after_a_fake_has_the_earlier_one_hanged(self):
+        prep, roles = self._eleven(A="人狼", D="狩人", E="村人")
+        with mock.patch("zinro_learn.progress.HUNTER_COUNTER", 0.0), mock.patch("zinro_learn.progress.HUNTER_BITE", 0.0):
+            trace: list = []
+            play(prep, roles, "grey", "grey", FirstRng(), trace, seer_results=False, cat="off", hunter="fake")
+        kinds = [t[:2] for t in trace]
+        self.assertEqual(kinds[:3], [("fakehunter", "A"), ("hang", "B"), ("bite", "C")])      # 昼1: 偽の A は吊りを避け、B が吊られる。夜に C が噛まれる
+        self.assertIn(("hunter", "D"), kinds)                                            # 昼2: 指定された本物の D が名乗る
+        after = kinds[kinds.index(("hunter", "D")) + 1]
+        self.assertEqual(after, ("hang", "A"))                                           # 2人の狩人が名乗ったので、先に出た偽の A を吊る
+
+    def test_the_standard_modes_and_the_names(self):
+        self.assertEqual(HUNTERS, ("off", "gidra", "fake"))
+        self.assertEqual(set(HUNTER_NAME), set(HUNTERS))
+        self.assertEqual(GIDRA_HUNTER, 1.0)                                              # 依頼者: 本指定のタイミングで、狩もギドラCOをする
+        self.assertTrue(0 < FAKE_HUNTER_FIRST < 1 and 0 < HUNTER_COUNTER < 1 and 0 < HUNTER_BITE < 1)
+        prep, roles = self._eleven()
+        with self.assertRaises(ValueError):
+            play(prep, roles, "grey", "grey", FirstRng(), [], hunter="???")
+
+    def test_off_changes_nothing_and_the_hunter_modes_help_the_village_by_keeping_the_guard(self):
+        board = neko("AB")
+        off = win_rate(board, "grey", "claim", n=12000, seed=1, guard="env", cat="gidra")["rate"]
+        gidra = win_rate(board, "grey", "claim", n=12000, seed=1, guard="env", cat="gidra", hunter="gidra")["rate"]
+        self.assertGreater(gidra, off + 0.04)                                            # 指定された狩人が名乗ると、吊られずに護衛が残る分、村が得をする
+        with mock.patch("zinro_learn.progress.FAKE_HUNTER_FIRST", 1.0), mock.patch("zinro_learn.progress.HUNTER_COUNTER", 0.0):
+            fake = win_rate(board, "grey", "claim", n=12000, seed=1, guard="env", cat="gidra", hunter="fake")["rate"]
+        self.assertLess(fake, gidra - 0.01)                                              # 人外が偽の狩人で初手の指定を避ければ、村は損をする
 
 
 class SeersFirstTest(unittest.TestCase):

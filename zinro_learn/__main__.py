@@ -6,7 +6,7 @@
   python -m zinro_learn timeline logs/normalized/<id>.json [...]   # 役職、夜の行動と通知、死亡、人狼の夜チャットを、夜と昼の順に並べる
   python -m zinro_learn board knowledge/boards/<id>.json [--stage N]   # 盤面整理: 公開された情報に合う役職の割り当て(真・狼・狂)、確定した黒白、縄
   python -m zinro_learn board --patterns   # 名乗りの数(占い-霊)ごとの、名乗りの種類の組み合わせと、定番／ありうる／まれ
-  python -m zinro_learn progress --seers 3 [--result A:B:黒] [--guard none|medium|blacksayer|env] [--cat off|hidden|open|counter|gidra] [--no-seer-results] [--no-rpp] [--seers-first] [--no-reads]   # 進行の比較(占いロラ・グレランなど)の、村の勝率の試算
+  python -m zinro_learn progress --seers 3 [--result A:B:黒] [--guard none|medium|blacksayer|env] [--cat off|hidden|open|counter|gidra] [--hunter off|gidra|fake] [--no-seer-results] [--no-rpp] [--seers-first] [--no-reads]   # 進行の比較(占いロラ・グレランなど)の、村の勝率の試算
   python -m zinro_learn sync     # 発言例から、ガイドの「発言の型」の表を作り直す
   python -m zinro_learn check    # knowledge/ の整合性を調べる(問題があれば終了コード 1)
   python -m zinro_learn structure  # 連投と返信の型(1発言に1返信ではない構造)を数える
@@ -21,7 +21,7 @@ from .analyze import format_stats, speech_stats
 from .board import ROLES_12A_NEKO, Board, load_record, patterns_text, record_report, stage_report
 from .check import check, load_examples, load_games, sync_table
 from .parse import anonymize, build_mapping, parse_game
-from .progress import CAT_NAME, CATS, GUARD_NAME, compare_text, hit_rates
+from .progress import CAT_NAME, CATS, GUARD_NAME, HUNTER_NAME, HUNTERS, compare_text, hit_rates
 from .roles import format_timeline
 from .structure import format_structure
 
@@ -110,10 +110,10 @@ def progress(args) -> None:
     title = (f"{args.seers}-1" + ("・" + "、".join(args.result) if args.result else "・結果なし") + f"・{GUARD_NAME[guard]}"
              + ("・占いの夜の結果なし" if args.no_seer_results else "・占いの夜の結果あり") + f"・{CAT_NAME[args.cat]}"
              + ("・同数の票の操作なし" if args.no_rpp else "・同数は抽選(RPP)あり") + ("・占い吊り優先(黒先は占いのあと)" if args.seers_first else "・先黒吊り")
-             + ("・村の読みなし" if args.no_reads else "・村は霊能の報告で占いを読む"))
+             + ("・村の読みなし" if args.no_reads else "・村は霊能の報告で占いを読む") + (f"・{HUNTER_NAME[args.hunter]}" if args.hunter != "off" else ""))
     print(f"昼1の1本目の吊りが人狼に当たる見込み(厳密): 占いの名乗り {seers} / 灰1人 {rates['灰'] * 100:.1f}%({rates['灰の人数']}人)")
     print(compare_text(board, title, args.n, args.seed, guard=guard, seer_results=not args.no_seer_results, cat=args.cat, rpp=not args.no_rpp,
-                       black_first=not args.seers_first, reads=not args.no_reads))
+                       black_first=not args.seers_first, reads=not args.no_reads, hunter=args.hunter))
 
 
 def sync(args) -> None:
@@ -183,6 +183,8 @@ def main(argv=None) -> None:
     p.add_argument("--cat", choices=CATS, default="gidra",
                    help="猫又の扱い: off=力を数えない、hidden=隠れている、open=名乗っていて吊らず噛まない、counter=名乗り、対抗猫が出る(猫吊り)、"
                         "gidra=隠れていて、黒を刺されたら・指定されたら名乗る(既定)")
+    p.add_argument("--hunter", choices=HUNTERS, default="off",
+                   help="狩人のギドラ: off=名乗らない(既定)、gidra=吊りを指定された狩人が名乗る、fake=gidra に加えて、昼1の指定で人外が偽の狩人を名乗る(仮の割合)")
     p.add_argument("--no-reads", action="store_true", help="村の読みを入れない(霊能の報告で偽の占いを見抜く動きなし。11A のメモと同じ前提)")
     p.add_argument("--seers-first", action="store_true", help="占い吊り優先: 占いの名乗りを先に吊り、黒先は占いを吊り終えてから(標準は先黒吊り)")
     p.add_argument("--no-rpp", action="store_true", help="同数のときの票(人外側の PP・RPP)を入れない(11A のメモと同じ前提)")

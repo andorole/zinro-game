@@ -46,7 +46,7 @@ python -m zinro_learn stats logs/normalized/<id>.json
 python -m zinro_learn timeline logs/normalized/<id>.json   # 役職、夜の行動と通知、死亡、人狼の夜チャットを、夜と昼の順に並べる
 python -m zinro_learn board knowledge/boards/<id>.json     # 盤面整理: 段階ごとの、合う役職の割り当て(真・狼・狂)、定番／ありうる／まれ、名乗った人の種類の見込み、確定した黒白、縄
 python -m zinro_learn board --patterns                      # 名乗りの数(占い-霊)ごとの、名乗りの種類の組み合わせ
-python -m zinro_learn progress --seers 3 [--result A:B:黒] [--cat off|hidden|open|counter|gidra]  # 進行の比較: 12A猫の3-1などで、グレー・占いロラ・黒スト・ロラ完遂の、村の勝率の試算(村の読みなし。占いの2日目以降の夜の結果、猫又の道連れ、人外側の同数の票(RPP)あり。--no-seer-results、--no-rpp でなし。counter は猫が名乗り、対抗猫が出て猫吊り、gidra は猫が黒を刺されたら・指定されたら名乗る。既定は gidra・護衛 env)
+python -m zinro_learn progress --seers 3 [--result A:B:黒] [--guard none|medium|blacksayer|env] [--cat off|hidden|open|counter|gidra] [--hunter off|gidra|fake] [--seers-first] [--no-reads] [--no-rpp] [--no-seer-results]  # 進行の比較: 12A猫の3-1などで、グレー・占いロラ・黒スト・ロラ完遂の、村の勝率の試算。既定は、護衛 env(黒を出した占い、なければ霊能)・猫又 gidra(黒を刺されたら・指定されたら名乗る)・先黒吊り・村は霊能の報告で占いを読む・占いの夜の結果あり・人外側の同数の票(RPP)あり・狩人は名乗らない。--seers-first は占い吊り優先、--no-reads・--no-rpp・--no-seer-results はそれぞれの操作なし。--cat counter は猫が名乗り、対抗猫が出て猫吊り。--hunter gidra は指定された狩人が名乗る、fake は人外も昼1の指定で偽の狩人を名乗る(仮の割合)
 python -m zinro_learn sync      # 発言例から、ガイドの「発言の型」の表を作り直す
 python -m zinro_learn check     # knowledge/ の整合性を調べる(問題があれば終了コード 1)
 python -m zinro_learn structure # 連投と返信の型を数える(発言例の reply_to を使う)
