@@ -272,33 +272,51 @@ def real_claimed(board: Board, assign: dict) -> bool:
 
 def enumerate_worlds(board: Board, fake_black_first: float | None = None) -> list[World]:
     keys = board.key_players()
-    free = [p for p in board.players if p not in set(keys)]
-    results_by_player: dict[str, list[dict]] = {}
+    key_set = set(keys)
+    free = [p for p in board.players if p not in key_set]
+    dead, alive_n, wolves_total = board.dead, len(board.alive), board.roles["人狼"]
+    ways_free = factorial(len(free))
+    claimant_of = {role: set(board.claimants(role)) for role in CLAIM_ROLES}
+    # 人ごとのなりうる役職。ロケットCOなら、占い・霊能の本物は名乗った人(か初日犠牲者)だけ: 名乗っていない人が持っていれば、潜伏
+    dom: dict[str, list[str]] = {}
+    for p in keys:
+        allowed = domain(board, p)
+        if board.rco and p != board.dummy:
+            allowed = {r for r in allowed if r not in CLAIM_ROLES or p in claimant_of[r]}
+        dom[p] = sorted(allowed)
+    # 結果ごとの条件(本物の占い・霊能の結果は正しい。白ランオンでは、本物の初日の結果は白)を、関係する人ごとに引けるようにする
+    related: dict[str, list[tuple[str, str, str, bool, bool]]] = {p: [] for p in keys}
     for r in board.results:
-        results_by_player.setdefault(r["player"], []).append(r)
+        black = r["color"] == "黒"
+        first_black = board.random_white and r["kind"] == "占い" and bool(r.get("first")) and black
+        item = (r["player"], r["target"], ROLE_OF_KIND[r["kind"]], black, first_black)
+        for q in {r["player"], r["target"]}:
+            if q in related:
+                related[q].append(item)
     worlds: list[World] = []
     assign: dict[str, str] = {}
     left = Counter(board.roles)
 
     def consistent(player: str) -> bool:
         """player を決めたとき、決まっている人どうしの結果の条件を調べる。"""
-        for r in board.results:
-            if player in (r["player"], r["target"]) and r["player"] in assign and r["target"] in assign:
-                if not truthful(board, assign, r):
-                    return False
+        for rp, rt, need, black, first_black in related[player]:
+            if assign.get(rp) != need or rt not in assign:
+                continue
+            if first_black or (assign[rt] == "人狼") != black:
+                return False
         return True
 
     def walk(i: int) -> None:
         if i == len(keys):
             if sum(left.values()) != len(free):
                 return
-            if board.rco and not real_claimed(board, assign):
+            if board.rco and any(left[role] for role in CLAIM_ROLES):
                 return                                                        # 本物は、ロケットCOで名乗っているはず(潜伏はない)
             if board.ongoing:
-                alive_wolves = board.roles["人狼"] - sum(1 for p in board.dead if assign[p] == "人狼")
-                if alive_wolves <= 0 or alive_wolves >= len(board.alive) - alive_wolves:
+                alive_wolves = wolves_total - sum(1 for p in dead if assign[p] == "人狼")
+                if alive_wolves <= 0 or alive_wolves >= alive_n - alive_wolves:
                     return                                                # 勝敗が決まっているはずの世界は、合わない
-            ways = factorial(len(free))
+            ways = ways_free
             for n in left.values():
                 ways //= factorial(n)
             tier, reasons = world_judgement(board, assign)
@@ -307,7 +325,7 @@ def enumerate_worlds(board: Board, fake_black_first: float | None = None) -> lis
                 worlds.append(World(dict(assign), +left, ways, tier, reasons, factor))
             return
         player = keys[i]
-        for role in sorted(domain(board, player)):
+        for role in dom[player]:
             if left[role] <= 0:
                 continue
             assign[player] = role
@@ -514,9 +532,12 @@ def claim_summary(board: Board) -> str:
 
 
 def stage_report(record: dict, stage: int) -> str:
-    board = board_at(record, stage)
+    return board_report(board_at(record, stage), record["stages"][stage]["name"], record.get("truth"))
+
+
+def board_report(board: Board, name: str, truth: dict | None = None) -> str:
+    """盤面 board の報告: 名乗り、公開された事実、合う世界(名乗った人の種類の組み合わせ)、確定した黒白、縄、灰詰め。truth があれば、答え合わせも付ける。"""
     worlds = enumerate_worlds(board)
-    name = record["stages"][stage]["name"]
     lines = [f"== {name}(生存 {len(board.alive)} 人: {' '.join(board.alive)}) =="]
     lines.append(f"名乗り: {claim_summary(board)}")
     if board.executed or board.bitten or board.other_dead or board.wolf_co:
@@ -578,7 +599,6 @@ def stage_report(record: dict, stage: int) -> str:
             f"灰詰め({TIER_NAME[top]}の世界。人狼 {w_alive}): 確定黒 {'・'.join(black) or 'なし'}、灰 {len(grey)} 人({'・'.join(grey) or 'なし'})。"
             f"確定黒を先に吊り、灰を端から吊ると、最悪の並びでも → {verdict}"
         )
-    truth = record.get("truth")
     if truth:
         t = {p: truth[p] for p in board.key_players()}
         ok = all(t[p] in domain(board, p) for p in t) and all(truthful(board, t, r) for r in board.results)

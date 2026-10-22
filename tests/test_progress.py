@@ -7,9 +7,9 @@ from unittest import mock
 from zinro_learn.__main__ import main
 from zinro_learn.board import DUMMY, FAKE_BLACK_FIRST, Board, ROLES_12A_NEKO, make_board
 from zinro_learn.progress import (
-    BITES, CAT_HIDE_SEERS_FIRST, CATS, COUNTER_CAT, COUNTER_CAT_BLACK, COUNTER_CAT_WOLF, ENCLOSE_NEXT, FAKE_BLACK_LATER, FAKE_CAT_FIRST, FAKE_CAT_PROACTIVE, FAKE_HUNTER_FIRST,
-    GIDRA_CAT, GIDRA_HUNTER, GUARDS, HUNTER_BITE, HUNTER_COUNTER, HUNTER_NAME, HUNTERS, OPEN_CAT_BITE, POLICIES, compare, compare_text, counter_cat, hit_rates, night_result, play,
-    prepare, sample_world, win_rate,
+    ALL_POLICIES, BITES, CAT_HIDE_SEERS_FIRST, CATS, COUNTER_CAT, COUNTER_CAT_BLACK, COUNTER_CAT_WOLF, ENCLOSE_NEXT, FAKE_BLACK_LATER, FAKE_CAT_FIRST, FAKE_CAT_PROACTIVE,
+    FAKE_HUNTER_FIRST, GIDRA_CAT, GIDRA_HUNTER, GUARDS, HUNTER_BITE, HUNTER_COUNTER, HUNTER_NAME, HUNTERS, OPEN_CAT_BITE, POLICIES, POLICY_NAME, POSTERIOR, compare,
+    compare_policies, compare_text, counter_cat, hit_rates, night_result, play, prepare, sample_world, win_rate,
 )
 
 
@@ -688,6 +688,111 @@ class MissingRoleProgressTest(unittest.TestCase):
 
 def self_board():
     return make_board("10a-kari", 2, [dict(player="A", target="C", color="白"), dict(player="B", target="D", color="白")])
+
+
+class PosteriorTest(unittest.TestCase):
+    """尤度吊り(依頼者: 可能性の中でいちばん人狼がありそうな所を吊るのが人狼ゲーム)。毎朝、公開された情報に合う世界を数え直す。"""
+
+    def _boards(self):
+        return [
+            ("12a-neko", make_board("12a-neko", 2, [dict(player="A", target="C", color="黒")]), dict(cat="gidra", hunter="gidra")),
+            ("11a", make_board("11a", 2, [dict(player="A", target="C", color="白"), dict(player="B", target="D", color="白")]), dict(cat="off", hunter="gidra")),
+            ("10a-kari", make_board("10a-kari", 3, [dict(player="A", target="D", color="白"), dict(player="B", target="E", color="白"), dict(player="C", target="F", color="白")]),
+             dict(cat="off", hunter="gidra")),
+        ]
+
+    def test_the_public_board_of_every_morning_contains_the_true_world(self):
+        """吊り・夜の死亡・霊能の報告・占いの結果の積み上げ方が、シミュレーションと盤面の数え方で食い違っていないことの確かめ。"""
+        for name, board, kw in self._boards():
+            prep = prepare(board)
+            rng = random.Random(5)
+            days = set()
+            for i in range(25):
+                roles, _ = sample_world(prep, rng)
+                seen: list = []
+
+                def observe(day, pb, worlds, wolf_p, target):
+                    keys = pb.key_players()
+                    seen.append(any(all(w.assign[p] == roles[p] for p in keys) for w in worlds))
+                    days.add(day)
+
+                for policy in (POSTERIOR, "roll_keep"):
+                    seen.clear()
+                    play(prep, roles, policy, "claim", random.Random(i), guard="env", observer=observe, **kw)
+                    self.assertTrue(seen and all(seen), (name, policy, i, seen))
+            self.assertTrue({1, 2, 3} <= days, (name, days))                                # 昼2・昼3 の盤面も見ている
+
+    def test_it_hangs_the_most_wolf_like_player_every_day(self):
+        board = make_board("11a", 2, [dict(player="A", target="C", color="白"), dict(player="B", target="D", color="白")])
+        prep = prepare(board)
+        rng = random.Random(9)
+        checked = 0
+        for i in range(30):
+            roles, _ = sample_world(prep, rng)
+
+            def observe(day, pb, worlds, wolf_p, target):
+                nonlocal checked
+                self.assertAlmostEqual(wolf_p[target], max(wolf_p.values()), places=9)         # 吊り先の人狼の見込みが、生存者でいちばん高い
+                self.assertEqual(set(wolf_p), set(pb.alive))
+                checked += 1
+
+            play(prep, roles, POSTERIOR, "grey", random.Random(i), guard="env", cat="off", rpp=False, observer=observe)
+        self.assertGreater(checked, 60)
+
+    def test_a_first_day_black_under_random_white_is_hanged_on_the_giver_by_the_numbers(self):
+        board = make_board("11a", 2, [dict(player="A", target="C", color="黒"), dict(player="B", target="D", color="白")])
+        prep = prepare(board)
+        roles = {"A": "人狼", "B": "占い師", "C": "村人", "D": "村人", "E": "村人", "F": "村人", "G": "人狼", "H": "狂人", "I": "狩人", "J": "霊能者", DUMMY: "村人"}
+        picked: list = []
+        play(prep, roles, POSTERIOR, "grey", FirstRng(), [], cat="off", observer=lambda day, pb, ws, wp, target: picked.append((day, target, wp[target])))
+        self.assertEqual(picked[0][:2], (1, "A"))                                        # 黒を出した A は偽(人狼の見込み9割)。黒先の C ではない
+        self.assertGreater(picked[0][2], 0.85)
+
+    def test_without_any_world_it_falls_back_to_the_grey_pick(self):
+        board = make_board("11a", 2, [dict(player="A", target="C", color="白"), dict(player="B", target="D", color="白")])
+        prep = prepare(board)
+        roles, _ = sample_world(prep, random.Random(3))
+        trace: list = []
+        with mock.patch("zinro_learn.progress.enumerate_worlds", return_value=[]):
+            play(prep, roles, POSTERIOR, "grey", random.Random(1), trace, cat="off")
+        self.assertTrue(any(t[0] == "hang" for t in trace))
+        self.assertFalse(any(t[0] == "pick" for t in trace))
+
+    def test_the_observer_sees_the_deaths_and_reports_pile_up(self):
+        board = make_board("10a-kari", 2, [dict(player="A", target="C", color="白"), dict(player="B", target="D", color="白")])
+        prep = prepare(board)
+        roles = {"A": "占い師", "B": "人狼", "C": "村人", "D": "村人", "E": "人狼", "F": "村人", "G": "狩人", "H": "狂人", "I": "霊能者", DUMMY: "村人"}
+        boards: dict[int, object] = {}
+        trace: list = []
+        play(prep, roles, "grey", "grey", FirstRng(), trace, seer_results=False, cat="off", observer=lambda day, pb, ws, wp, target: boards.setdefault(day, pb))
+        self.assertEqual(boards[1].executed, [])
+        hung = [t[1] for t in trace if t[0] == "hang"]
+        bitten = [t[1] for t in trace if t[0] == "bite"]
+        self.assertEqual(boards[2].executed, hung[:1])
+        self.assertEqual(boards[2].bitten, bitten[:1])
+        self.assertIn({"kind": "霊能", "player": "I", "target": hung[0], "color": "白" if roles[hung[0]] != "人狼" else "黒", "first": False}, boards[2].results)
+
+    def test_the_policy_is_named_and_listed_after_the_fixed_ones(self):
+        self.assertEqual(ALL_POLICIES, (*POLICIES, POSTERIOR))
+        self.assertEqual(POLICY_NAME[POSTERIOR], "尤度吊り")
+        board = make_board("11a", 2, [dict(player="A", target="C", color="白"), dict(player="B", target="D", color="白")])
+        prep = prepare(board)
+        roles, _ = sample_world(prep, random.Random(1))
+        with self.assertRaises(ValueError):
+            play(prep, roles, "???", "grey", random.Random(1), cat="off")
+
+    def test_comparing_policies_gives_the_same_numbers_serially_and_in_parallel(self):
+        board = make_board("10a-kari", 2, [dict(player="A", target="C", color="白"), dict(player="B", target="D", color="白")])
+        serial = compare_policies(board, ALL_POLICIES, "grey", n=48, seed=2, workers=1, guard="env", cat="off", hunter="gidra")
+        parallel = compare_policies(board, ALL_POLICIES, "grey", n=48, seed=2, workers=2, guard="env", cat="off", hunter="gidra")
+        self.assertEqual(serial, parallel)
+        self.assertEqual(set(serial), set(ALL_POLICIES))
+        self.assertEqual(serial, compare_policies(board, ALL_POLICIES, "grey", n=48, seed=2, workers=1, guard="env", cat="off", hunter="gidra"))
+
+    def test_reading_the_board_every_day_beats_every_fixed_progression_on_three_one(self):
+        board = make_board("11a", 3, [dict(player="A", target="D", color="白"), dict(player="B", target="E", color="白"), dict(player="C", target="F", color="白")])
+        r = compare_policies(board, ALL_POLICIES, "grey", n=700, seed=4, workers=2, guard="env", cat="off", hunter="gidra")
+        self.assertGreater(r[POSTERIOR], max(r[p] for p in POLICIES) + 0.03)           # 3-1 白白白: 読みながら吊る方が、固定の進行より上(目安は +10 点)
 
 
 class SeersFirstTest(unittest.TestCase):
