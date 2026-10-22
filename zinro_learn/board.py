@@ -28,10 +28,11 @@ from pathlib import Path
 
 # 12A猫の役職の人数。ダミー(初日犠牲者。村人)を除く11人ぶん。
 ROLES_12A_NEKO = {"人狼": 3, "狂人": 1, "占い師": 1, "霊能者": 1, "狩人": 1, "猫又": 1, "村人": 3}
-# 11A・10A狩の役職の人数。ダミー(初日犠牲者。村人)を除く参加者ぶん。依頼者の話: 比較的簡単な配役。11A は `prob_11a.md` の配役(人狼2・占い1・狩人1・霊能1・狂人1・
-# 村人5。ダミーを除いて村人4)。10A狩の人数は、11A から村人が1人少ないと読んだ(推測。確認したい)。
+# 11A・10A狩の役職の人数。ダミー(初日犠牲者)が村人のときの、参加者ぶん。依頼者の話: 比較的簡単な配役。頭数にダミーを1人と数えて、11A は人狼2・占い1・狩人1・
+# 霊能1・狂人1・村人5(`prob_11a.md`)、10A狩は村人4(依頼者の訂正)。役欠けありでは、ダミーの分の村人を1枚足した山から、ダミーが人狼以外の1枚を持つ(make_board)。
 ROLES_11A = {"人狼": 2, "狂人": 1, "占い師": 1, "霊能者": 1, "狩人": 1, "村人": 4}
 ROLES_10A_KARI = {"人狼": 2, "狂人": 1, "占い師": 1, "霊能者": 1, "狩人": 1, "村人": 3}
+DUMMY = "ダミー"                                         # 初日犠牲者(役欠けありのとき、役職は人狼以外のどれか)
 CLAIM_ROLES = ("占い師", "霊能者")                       # 名乗られる役職(結果を出す役職)
 ROLE_OF_KIND = {"占い": "占い師", "霊能": "霊能者"}
 TIER_NAME = {3: "定番", 2: "ありうる", 1: "まれ"}
@@ -56,15 +57,17 @@ class Setup:
 
     key: str
     name: str
-    roles: dict[str, int]                                # ダミーを除く参加者ぶん
+    roles: dict[str, int]                                # ダミーが村人のときの、参加者ぶん
     random_white: bool                                   # 白ランオン(本物の占い師の初日の結果は、無作為な白)
     fake_black_first: float                              # 偽の占いが、初手に人狼でない人へ黒を出す重み
+    missing: bool = False                                # 役欠けあり(ダミーの役職は、人狼以外のどれかで、欠けうる)
 
 
+# 12A猫は、役欠けなしのまま(log17 の部屋の「役欠け:あり」の意味は、確認したい)。10A狩・11A は、役欠けあり(依頼者: 人狼以外の全てが欠けうる)。
 SETUPS = {
-    "12a-neko": Setup("12a-neko", "12A猫", ROLES_12A_NEKO, False, FAKE_BLACK_FIRST),
-    "11a": Setup("11a", "11A", ROLES_11A, True, FAKE_BLACK_FIRST_RANDOM_WHITE),
-    "10a-kari": Setup("10a-kari", "10A狩", ROLES_10A_KARI, True, FAKE_BLACK_FIRST_RANDOM_WHITE),
+    "12a-neko": Setup("12a-neko", "12A猫", ROLES_12A_NEKO, False, FAKE_BLACK_FIRST, False),
+    "11a": Setup("11a", "11A", ROLES_11A, True, FAKE_BLACK_FIRST_RANDOM_WHITE, True),
+    "10a-kari": Setup("10a-kari", "10A狩", ROLES_10A_KARI, True, FAKE_BLACK_FIRST_RANDOM_WHITE, True),
 }
 DEFAULT_SETUP = "12a-neko"
 
@@ -73,8 +76,8 @@ DEFAULT_SETUP = "12a-neko"
 class Board:
     """ある時点で公開されている情報。"""
 
-    players: list[str]                                   # 参加者(ダミーを除く)
-    roles: dict[str, int]
+    players: list[str]                                   # 参加者(役欠けありのときは、ダミーも入れる)
+    roles: dict[str, int]                                # 役職の山(役欠けありのときは、ダミーの分も入れる)
     claims: list[tuple[str, str]] = field(default_factory=list)          # (名乗った人, 役職)
     results: list[dict] = field(default_factory=list)                    # kind(占い/霊能)・player・target・color(黒/白)・first(その人の初手の結果か)
     executed: list[str] = field(default_factory=list)
@@ -85,10 +88,11 @@ class Board:
     rco: bool = False                                                    # 占い・霊能の本物は、一発言目に名乗る(ロケットCO)。名乗りに本物がいない(潜伏)世界は、ない
     random_white: bool = False                                           # 白ランオン: 本物の占い師の初日の結果は、人狼でない人への無作為な白(黒は出ない)
     fake_black_first: float = FAKE_BLACK_FIRST                           # 偽の占いが、初手に人狼でない人へ黒を出す重み(白を出す場合を 1)
+    dummy: str | None = None                                             # 役欠けあり: 初日犠牲者(最初から死んでいる)。役職は人狼以外のどれかで、占い・霊能・狩人なども欠けうる
 
     @property
     def dead(self) -> list[str]:
-        return [*self.executed, *self.bitten, *self.other_dead]
+        return [*([self.dummy] if self.dummy else []), *self.executed, *self.bitten, *self.other_dead]
 
     @property
     def alive(self) -> list[str]:
@@ -120,16 +124,29 @@ class World:
         return self.count * world_base_weight(self.tier, self.reasons) * self.factor
 
 
-def make_board(setup: str = DEFAULT_SETUP, seers: int = 2, results=(), random_white: bool | None = None, rco: bool = True) -> Board:
-    """配役 setup の盤面。参加者は A から順に並べ、占いの名乗りは A から seers 人、霊能の名乗りは最後の1人(12A猫なら K、11A なら J、10A狩なら I)。
-    results は、占いの初手の結果(dict の並び。kind・first は補う)。random_white を渡さなければ、配役の約束事のとおり。"""
+def setup_roles(setup: str = DEFAULT_SETUP, missing: bool | None = None) -> tuple[dict[str, int], bool]:
+    """配役 setup の役職の山と、役欠けありか。役欠けありなら、ダミーの分の村人を1枚足した山(ダミーは、人狼以外の1枚を持つ)。"""
     cfg = SETUPS[setup]
+    missing = cfg.missing if missing is None else missing
+    roles = dict(cfg.roles)
+    if missing:
+        roles["村人"] = roles.get("村人", 0) + 1
+    return roles, missing
+
+
+def make_board(setup: str = DEFAULT_SETUP, seers: int = 2, results=(), random_white: bool | None = None, rco: bool = True,
+               missing: bool | None = None) -> Board:
+    """配役 setup の盤面。参加者は A から順に並べ、占いの名乗りは A から seers 人、霊能の名乗りは最後の1人(12A猫なら K、11A なら J、10A狩なら I)。
+    results は、占いの初手の結果(dict の並び。kind・first は補う)。random_white・missing を渡さなければ、配役の約束事のとおり。
+    役欠けあり(missing)なら、参加者のあとにダミー(DUMMY)を足す。ダミーは最初から死んでいて、役職は人狼以外のどれか。"""
+    cfg = SETUPS[setup]
+    roles, missing = setup_roles(setup, missing)
     n = sum(cfg.roles.values())
     players = [chr(ord("A") + i) for i in range(n)]
     if not 0 <= seers <= n - 1:
         raise ValueError("占いの名乗りの人数が多すぎる")
-    board = Board(players=players, roles=dict(cfg.roles), rco=rco, fake_black_first=cfg.fake_black_first,
-                  random_white=cfg.random_white if random_white is None else random_white)
+    board = Board(players=players + ([DUMMY] if missing else []), roles=roles, rco=rco, fake_black_first=cfg.fake_black_first,
+                  random_white=cfg.random_white if random_white is None else random_white, dummy=DUMMY if missing else None)
     board.claims = [(p, "占い師") for p in players[:seers]] + [(players[-1], "霊能者")]
     board.results = [{"kind": "占い", "first": True, **r} for r in results]
     return board
@@ -141,7 +158,7 @@ def domain(board: Board, player: str) -> set[str]:
     for p, role in board.claims:
         if p == player:
             allowed &= {role, "人狼", "狂人"}
-    if player in board.bitten:
+    if player in board.bitten or player == board.dummy:
         allowed.discard("人狼")
     if player in board.wolf_co:
         allowed &= {"人狼"}
@@ -160,6 +177,7 @@ def truthful(board: Board, assign: dict, result: dict) -> bool:
 
 
 REASON_NO_REAL = {"占い師": "占いに本物がいない(潜伏)", "霊能者": "霊に本物がいない(霊の偽)"}
+REASON_MISSING = {"占い師": "占いが欠け(初日犠牲者)で、名乗りは全員偽", "霊能者": "霊が欠け(初日犠牲者)で、名乗りは偽"}
 REASON_MAD = "狂人が偽に出る"
 REASON_NO_MAD = "偽が人狼だけ(狂人が偽に出ない)"
 REASON_CUT = "偽の黒が人狼に当たる(切り・偶然)"
@@ -181,8 +199,12 @@ def world_judgement(board: Board, assign: dict) -> tuple[int, tuple[str, ...]]:
         if not claimants:
             continue
         if not any(assign[p] == role for p in claimants):
-            tier = min(tier, 1)
-            reasons.append(REASON_NO_REAL[role])
+            if board.dummy is not None and assign.get(board.dummy) == role:
+                tier = min(tier, 2)                                       # 役欠け: 本物は初日犠牲者。偽の名乗りだけが出ている
+                reasons.append(REASON_MISSING[role])
+            else:
+                tier = min(tier, 1)
+                reasons.append(REASON_NO_REAL[role])
         fakes = [p for p in claimants if assign[p] != role]
         mad = any(assign[p] == "狂人" for p in fakes)
         if len(fakes) == 1 and mad:
@@ -222,8 +244,12 @@ def result_factor(board: Board, assign: dict, fake_black_first: float | None = N
     if fake_black_first is None:
         fake_black_first = board.fake_black_first
     factor = 1.0
+    n, wolves = len(board.players), board.roles.get("人狼", 0)
     for r in board.results:
         if r["kind"] != "占い" or not r.get("first"):
+            continue
+        if board.random_white and assign[r["player"]] == "占い師" and n - wolves - 1 > 0:
+            factor *= (n - 1) / (n - wolves - 1)             # 本物の白は、人狼でない人から無作為(1/(n-人狼-1))で、偽の相手の選び方(1/(n-1))より、その人に当たりやすい
             continue
         if assign[r["player"]] not in ("人狼", "狂人"):
             continue
@@ -233,9 +259,12 @@ def result_factor(board: Board, assign: dict, fake_black_first: float | None = N
 
 
 def real_claimed(board: Board, assign: dict) -> bool:
-    """占い・霊能の本物が、みな名乗った人の中にいる。名乗りが1人もない役職(なのに役職の人数が1以上)は、本物が名乗っていない。"""
+    """占い・霊能の本物が、みな名乗った人の中にいる。名乗りが1人もない役職(なのに役職の人数が1以上)は、本物が名乗っていない。
+    役欠け: 初日犠牲者が持っている役職は、本物がいない(名乗る人がいなくてよい)。"""
     for role in CLAIM_ROLES:
         n = board.roles.get(role, 0)
+        if board.dummy is not None and assign.get(board.dummy) == role:
+            n -= 1
         if n > 0 and sum(1 for p in board.claimants(role) if assign[p] == role) != n:
             return False
     return True
@@ -369,6 +398,8 @@ def confirmed(board: Board, worlds: list[World], min_tier: int) -> dict[str, lis
     black, white = [], []
     if use:
         for p in board.key_players():
+            if p == board.dummy:
+                continue
             if all(w.assign[p] == "人狼" for w in use):
                 black.append(p)
             elif all(w.assign[p] != "人狼" for w in use):
@@ -438,11 +469,14 @@ def load_record(path: str | Path) -> dict:
 
 def board_at(record: dict, stage: int) -> Board:
     """記録の events から、段階 stage までに公開された情報の盤面を作る。"""
-    setup = SETUPS.get(record.get("setup", DEFAULT_SETUP)) or SETUPS[DEFAULT_SETUP]
-    roles = dict(record.get("roles") or setup.roles)
-    board = Board(players=list(record["players"]), roles=roles, ongoing=not record["stages"][stage].get("ended", False),
-                  rco=record.get("rco", True), random_white=record.get("random_white", setup.random_white),
-                  fake_black_first=record.get("fake_black_first", setup.fake_black_first))
+    key = record.get("setup", DEFAULT_SETUP) if record.get("setup", DEFAULT_SETUP) in SETUPS else DEFAULT_SETUP
+    setup = SETUPS[key]
+    deck, missing = setup_roles(key, record.get("missing"))
+    roles = dict(record.get("roles") or deck)                  # roles を書くときは、役欠けありなら、ダミーの分も入れた山
+    board = Board(players=list(record["players"]) + ([DUMMY] if missing else []), roles=roles,
+                  ongoing=not record["stages"][stage].get("ended", False), rco=record.get("rco", True),
+                  random_white=record.get("random_white", setup.random_white), fake_black_first=record.get("fake_black_first", setup.fake_black_first),
+                  dummy=DUMMY if missing else None)
     for e in record["events"]:
         if e["stage"] > stage:
             continue
@@ -562,31 +596,37 @@ def record_report(record: dict) -> str:
 # ---------------------------------------------------------------- 名乗りの組み合わせの一覧
 
 
-def claim_patterns(seers: int, mediums: int, roles: dict[str, int] | None = None, rco: bool = True) -> list[dict]:
+def claim_patterns(seers: int, mediums: int, roles: dict[str, int] | None = None, rco: bool = True, missing: bool = False) -> list[dict]:
     """占い seers 人・霊能 mediums 人が名乗ったときの、名乗りの種類(真・狼・狂)の組み合わせと段階。
-    rco(ロケットCO)なら、本物は必ず名乗るので、名乗りが0人の側がある組み合わせは、ない(空のまま)。"""
+    rco(ロケットCO)なら、本物は必ず名乗るので、名乗りが0人の側がある組み合わせは、ない(空のまま)。
+    missing(役欠けあり)なら、roles はダミーの分も入れた山で、占い・霊能が欠けた(初日犠牲者が持つ)組み合わせもある。"""
     roles = dict(roles or ROLES_12A_NEKO)
     players = [f"占{i + 1}" for i in range(seers)] + [f"霊{i + 1}" for i in range(mediums)]
-    players += [f"灰{i + 1}" for i in range(sum(roles.values()) - len(players))]
-    board = Board(players=players, roles=roles, rco=rco)
+    players += [f"灰{i + 1}" for i in range(sum(roles.values()) - len(players) - (1 if missing else 0))]
+    if missing:
+        players.append(DUMMY)
+    board = Board(players=players, roles=roles, rco=rco, dummy=DUMMY if missing else None)
     board.claims = [(f"占{i + 1}", "占い師") for i in range(seers)] + [(f"霊{i + 1}", "霊能者") for i in range(mediums)]
     return pattern_table(board, enumerate_worlds(board))
 
 
-def patterns_text(rco: bool = True, roles: dict[str, int] | None = None, name: str | None = None) -> str:
+def patterns_text(rco: bool = True, roles: dict[str, int] | None = None, name: str | None = None, missing: bool = False) -> str:
     """名乗りの数(占い-霊)ごとの、名乗りの種類(真・狼・狂)の組み合わせ。段階ごとにまとめる。
-    rco なら、占い・霊能の本物は必ず名乗る(ロケットCO)ので、0 人の側がある組み合わせは、ない。roles を渡すと、その配役の数え方(11A など)。"""
+    rco なら、占い・霊能の本物は必ず名乗る(ロケットCO)ので、0 人の側がある組み合わせは、ない(役欠けありなら、欠けたときの 0 人はある)。
+    roles を渡すと、その配役の数え方(11A など。役欠けありなら、ダミーの分も入れた山)。"""
     lines = [f"{name + ': ' if name else ''}占い-霊の名乗りの数: 定番 / ありうる / まれ(名乗りの種類の組み合わせ。真=本物、狼=人狼、狂=狂人)"]
-    if rco:
+    if rco and not missing:
         lines.append("(占い・霊能の本物は、ロケットCO(一発言目の CO)で名乗るので、0-x と x-0 は、ない)")
+    elif rco:
+        lines.append("(占い・霊能の本物は、ロケットCO(一発言目の CO)で名乗る。ただし、役欠け(初日犠牲者が持つ)で本物がいないことがあるので、0-x と x-0 もある)")
     for s in range(0, 4):
         for m in range(0, 3):
             if s == 0 and m == 0:
                 continue
-            if rco and (s == 0 or m == 0):
+            if rco and not missing and (s == 0 or m == 0):
                 continue
             by_tier: dict[int, list[str]] = {3: [], 2: [], 1: []}
-            for r in claim_patterns(s, m, roles=roles, rco=rco):
+            for r in claim_patterns(s, m, roles=roles, rco=rco, missing=missing):
                 if r["label"] not in by_tier[r["tier"]]:
                     by_tier[r["tier"]].append(r["label"])
             lines.append(f"{s}-{m}: " + " | ".join(f"{TIER_NAME[t]}: {'、'.join(by_tier[t]) or 'なし'}" for t in (3, 2, 1)))

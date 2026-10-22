@@ -5,7 +5,7 @@ import unittest
 from unittest import mock
 
 from zinro_learn.__main__ import main
-from zinro_learn.board import FAKE_BLACK_FIRST, Board, ROLES_12A_NEKO, make_board
+from zinro_learn.board import DUMMY, FAKE_BLACK_FIRST, Board, ROLES_12A_NEKO, make_board
 from zinro_learn.progress import (
     BITES, CAT_HIDE_SEERS_FIRST, CATS, COUNTER_CAT, COUNTER_CAT_BLACK, COUNTER_CAT_WOLF, ENCLOSE_NEXT, FAKE_BLACK_LATER, FAKE_CAT_FIRST, FAKE_CAT_PROACTIVE, FAKE_HUNTER_FIRST,
     GIDRA_CAT, GIDRA_HUNTER, GUARDS, HUNTER_BITE, HUNTER_COUNTER, HUNTER_NAME, HUNTERS, OPEN_CAT_BITE, POLICIES, compare, compare_text, counter_cat, hit_rates, night_result, play,
@@ -585,7 +585,8 @@ class HunterGidraTest(unittest.TestCase):
         self.assertEqual(HUNTERS, ("off", "gidra", "fake"))
         self.assertEqual(set(HUNTER_NAME), set(HUNTERS))
         self.assertEqual(GIDRA_HUNTER, 1.0)                                              # 依頼者: 本指定のタイミングで、狩もギドラCOをする
-        self.assertTrue(0 < FAKE_HUNTER_FIRST < 1 and 0 < HUNTER_COUNTER < 1 and 0 < HUNTER_BITE < 1)
+        self.assertTrue(0 < FAKE_HUNTER_FIRST < 1)                                       # 仮
+        self.assertEqual((HUNTER_COUNTER, HUNTER_BITE), (1.0, 1.0))                      # 依頼者: 本物の狩人も対抗COする。名乗った狩人は、もちろん噛みに行く
         prep, roles = self._eleven()
         with self.assertRaises(ValueError):
             play(prep, roles, "grey", "grey", FirstRng(), [], hunter="???")
@@ -612,6 +613,81 @@ class HunterGidraTest(unittest.TestCase):
         plain = wolf_side_first_hang("gidra")
         self.assertGreater(plain, 0.2)                                                   # 灰8人のうち、人外は2〜3人
         self.assertLess(fake, plain * 0.65)                                              # 指定された人外が偽の狩人で避けると、昼1の吊りは人外に当たりにくい(半分ほど)
+
+
+class MissingRoleProgressTest(unittest.TestCase):
+    """役欠け(10A狩・11A): ダミー(初日犠牲者)の役職は人狼以外のどれか。欠けた役職は、いない前提で進行する。"""
+
+    def _prep(self):
+        board = make_board("10a-kari", 2, [dict(player="A", target="C", color="白"), dict(player="B", target="D", color="白")])
+        return prepare(board)
+
+    def _roles(self, **swap):
+        # 参加者 A〜I とダミー。A が本物の占い、B が人狼で偽の占い、I が霊能(名乗る)、E・F が人狼 → B・E で人狼2は足りないので、F は村人
+        roles = {"A": "占い師", "B": "人狼", "C": "村人", "D": "村人", "E": "人狼", "F": "村人", "G": "狩人", "H": "狂人", "I": "霊能者", DUMMY: "村人"}
+        roles.update(swap)
+        return roles
+
+    def test_the_dummy_never_acts_or_dies_again(self):
+        prep = self._prep()
+        trace: list = []
+        play(prep, self._roles(), "grey", "grey", FirstRng(), trace, cat="off")
+        named = {t[1] for t in trace}
+        self.assertNotIn(DUMMY, named)
+
+    def test_a_dummy_hunter_means_no_guard(self):
+        prep = self._prep()
+        with_hunter, without = [], []
+        play(prep, self._roles(), "grey", "claim", FirstRng(), with_hunter, seer_results=False, cat="off", guard="medium")
+        play(prep, self._roles(G="村人", **{DUMMY: "狩人"}), "grey", "claim", FirstRng(), without, seer_results=False, cat="off", guard="medium")
+        self.assertIn("guard", [t[0] for t in with_hunter])                              # 狩人が参加者にいれば、霊能 I への噛みを護衛が止める
+        self.assertNotIn("guard", [t[0] for t in without])                               # 狩人が欠けていれば、護衛はない
+
+    def test_a_fake_medium_has_no_usable_report(self):
+        prep = self._prep()
+        trace: list = []
+        play(prep, self._roles(I="人狼", E="村人", **{DUMMY: "霊能者"}), "grey", "grey", FirstRng(), trace, seer_results=False, cat="off")
+        self.assertNotIn("report", [t[0] for t in trace])                                # 霊が欠けて、名乗りが偽なら、報告は使えない
+        real: list = []
+        play(prep, self._roles(), "grey", "grey", FirstRng(), real, seer_results=False, cat="off")
+        self.assertIn("report", [t[0] for t in real])
+
+    def test_the_sampled_worlds_include_missing_roles_and_the_village_still_wins_sometimes(self):
+        prep = self._prep()
+        rng = random.Random(7)
+        missing = {"占い師": 0, "霊能者": 0, "狩人": 0}
+        n = 400
+        for _ in range(n):
+            roles, _ = sample_world(prep, rng)
+            self.assertNotEqual(roles[DUMMY], "人狼")
+            if roles[DUMMY] in missing:
+                missing[roles[DUMMY]] += 1
+        self.assertGreater(missing["狩人"], 20)                                           # 狩人の欠けは、1/8 ほどある(名乗りがない役職なので、減らない)
+        self.assertGreater(missing["占い師"], 0)
+        rate = win_rate(self_board(), "grey", "grey", n=1500, seed=3, guard="env", cat="off", hunter="gidra")["rate"]
+        self.assertTrue(0.2 < rate < 0.95)
+
+    def test_the_command_line_names_the_missing_role_rule(self):
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            main(["progress", "--setup", "10a-kari", "--seers", "2", "--result", "A:C:白", "--n", "200"])
+        self.assertIn("10A狩・白ランオン・役欠けあり・2-1", out.getvalue())
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            main(["progress", "--setup", "10a-kari", "--missing", "off", "--seers", "2", "--result", "A:C:白", "--n", "200"])
+        self.assertNotIn("役欠けあり", out.getvalue())
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            main(["board", "--patterns", "--setup", "10a-kari"])
+        self.assertIn("0-1:", out.getvalue())
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            main(["board", "--patterns", "--setup", "10a-kari", "--missing", "off"])
+        self.assertNotIn("0-1:", out.getvalue())
+
+
+def self_board():
+    return make_board("10a-kari", 2, [dict(player="A", target="C", color="白"), dict(player="B", target="D", color="白")])
 
 
 class SeersFirstTest(unittest.TestCase):

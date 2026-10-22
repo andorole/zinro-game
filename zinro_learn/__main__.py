@@ -6,7 +6,7 @@
   python -m zinro_learn timeline logs/normalized/<id>.json [...]   # 役職、夜の行動と通知、死亡、人狼の夜チャットを、夜と昼の順に並べる
   python -m zinro_learn board knowledge/boards/<id>.json [--stage N]   # 盤面整理: 公開された情報に合う役職の割り当て(真・狼・狂)、確定した黒白、縄
   python -m zinro_learn board --patterns [--setup 12a-neko|11a|10a-kari]   # 名乗りの数(占い-霊)ごとの、名乗りの種類の組み合わせと、定番／ありうる／まれ
-  python -m zinro_learn progress [--setup 12a-neko|11a|10a-kari] [--random-white on|off] --seers 3 [--result A:B:黒] [--guard none|medium|blacksayer|env] [--cat off|hidden|open|counter|gidra] [--hunter off|gidra|fake] [--no-seer-results] [--no-rpp] [--seers-first] [--no-reads]   # 進行の比較(占いロラ・グレランなど)の、村の勝率の試算
+  python -m zinro_learn progress [--setup 12a-neko|11a|10a-kari] [--random-white on|off] [--missing on|off] --seers 3 [--result A:B:黒] [--guard none|medium|blacksayer|env] [--cat off|hidden|open|counter|gidra] [--hunter off|gidra|fake] [--no-seer-results] [--no-rpp] [--seers-first] [--no-reads]   # 進行の比較(占いロラ・グレランなど)の、村の勝率の試算
   python -m zinro_learn sync     # 発言例から、ガイドの「発言の型」の表を作り直す
   python -m zinro_learn check    # knowledge/ の整合性を調べる(問題があれば終了コード 1)
   python -m zinro_learn structure  # 連投と返信の型(1発言に1返信ではない構造)を数える
@@ -18,7 +18,7 @@ import json
 from pathlib import Path
 
 from .analyze import format_stats, speech_stats
-from .board import DEFAULT_SETUP, SETUPS, load_record, make_board, patterns_text, record_report, stage_report
+from .board import DEFAULT_SETUP, SETUPS, load_record, make_board, patterns_text, record_report, setup_roles, stage_report
 from .check import check, load_examples, load_games, sync_table
 from .parse import anonymize, build_mapping, parse_game
 from .progress import CAT_NAME, CATS, GUARD_NAME, HUNTER_NAME, HUNTERS, compare_text, hit_rates
@@ -87,7 +87,8 @@ def timeline(args) -> None:
 def board(args) -> None:
     if args.patterns:
         cfg = SETUPS[args.setup]
-        print(patterns_text(roles=cfg.roles, name=cfg.name) if args.setup != DEFAULT_SETUP else patterns_text())
+        roles, missing = setup_roles(args.setup, None if args.missing is None else args.missing == "on")
+        print(patterns_text(roles=roles, name=cfg.name, missing=missing) if (args.setup != DEFAULT_SETUP or missing) else patterns_text())
         return
     if not args.record:
         raise SystemExit("盤面の記録(knowledge/boards/<id>.json)か --patterns を指定してください")
@@ -104,12 +105,13 @@ def progress(args) -> None:
     for item in args.result:
         player, target, color = item.split(":")
         results.append({"player": player, "target": target, "color": color})
-    board = make_board(args.setup, args.seers, results, random_white=None if args.random_white is None else args.random_white == "on")
+    board = make_board(args.setup, args.seers, results, random_white=None if args.random_white is None else args.random_white == "on",
+                       missing=None if args.missing is None else args.missing == "on")
     cat = args.cat or ("gidra" if "猫又" in cfg.roles else "off")
     guard = None if args.guard == "none" else args.guard
     rates = hit_rates(board)
     seers = "、".join(f"{p} {v * 100:.1f}%" for p, v in rates["占い"].items())
-    title = (f"{cfg.name}・" + ("白ランオン・" if board.random_white else "") + f"{args.seers}-1" + ("・" + "、".join(args.result) if args.result else "・結果なし") + f"・{GUARD_NAME[guard]}"
+    title = (f"{cfg.name}・" + ("白ランオン・" if board.random_white else "") + ("役欠けあり・" if board.dummy else "") + f"{args.seers}-1" + ("・" + "、".join(args.result) if args.result else "・結果なし") + f"・{GUARD_NAME[guard]}"
              + ("・占いの夜の結果なし" if args.no_seer_results else "・占いの夜の結果あり") + f"・{CAT_NAME[cat]}"
              + ("・同数の票の操作なし" if args.no_rpp else "・同数は抽選(RPP)あり") + ("・占い吊り優先(黒先は占いのあと)" if args.seers_first else "・先黒吊り")
              + ("・村の読みなし" if args.no_reads else "・村は霊能の報告で占いを読む") + (f"・{HUNTER_NAME[args.hunter]}" if args.hunter != "off" else ""))
@@ -176,12 +178,14 @@ def main(argv=None) -> None:
     p.add_argument("--stage", type=int, help="段階の番号(0から)。省略すると全部")
     p.add_argument("--patterns", action="store_true", help="名乗りの数(占い-霊)ごとの、名乗りの種類の組み合わせ")
     p.add_argument("--setup", choices=list(SETUPS), default=DEFAULT_SETUP, help="配役(--patterns で使う。既定は12A猫)")
+    p.add_argument("--missing", choices=["on", "off"], default=None, help="役欠け(--patterns で使う。省略すると、配役の約束事のとおり)")
     p.set_defaults(func=board)
 
     p = sub.add_parser("progress", help="進行の比較: 占いロラ・グレランなどの、村の勝率を試算する(12A猫、占い N 人・霊能 K)")
     p.add_argument("--setup", choices=list(SETUPS), default=DEFAULT_SETUP,
                    help="配役: 12a-neko=12A猫(既定)、11a=11A、10a-kari=10A狩(11A・10A狩は白ランオン。10A狩の人数は推測)")
     p.add_argument("--random-white", choices=["on", "off"], default=None, help="白ランオン(本物の占いの初日の結果は無作為な白)。省略すると、配役の約束事のとおり")
+    p.add_argument("--missing", choices=["on", "off"], default=None, help="役欠け(ダミーの役職が人狼以外のどれかで、占い・霊能・狩人なども欠けうる)。省略すると、配役の約束事のとおり(11A・10A狩はあり、12A猫はなし)")
     p.add_argument("--seers", type=int, default=3, help="占いの名乗りの人数(A から順に)")
     p.add_argument("--result", action="append", default=[], help="占いの初手の結果。例: A:B:黒(A が B に黒)。複数指定可")
     p.add_argument("--guard", choices=["none", "medium", "blacksayer", "env"], default="env",

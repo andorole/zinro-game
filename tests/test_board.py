@@ -5,9 +5,9 @@ from itertools import permutations
 from pathlib import Path
 
 from zinro_learn.board import (
-    FAKE_BLACK_FIRST, FAKE_BLACK_FIRST_RANDOM_WHITE, ROLES_10A_KARI, ROLES_12A_NEKO, SETUPS, Board, board_at, claim_patterns, confirmed, enumerate_worlds,
-    load_record, make_board, narrowing_wins, next_hang_line, marginals, pattern_label, patterns_text, result_factor, rope_slack, stage_report, type_shares,
-    world_judgement,
+    DUMMY, FAKE_BLACK_FIRST, FAKE_BLACK_FIRST_RANDOM_WHITE, REASON_MISSING, ROLES_10A_KARI, ROLES_12A_NEKO, SETUPS, Board, board_at, claim_patterns, confirmed,
+    enumerate_worlds, load_record, make_board, narrowing_wins, next_hang_line, marginals, pattern_label, patterns_text, result_factor, rope_slack, setup_roles,
+    stage_report, type_shares, world_judgement,
 )
 from zinro_learn.board import ROLES_11A as ROLES_11A_PKG
 
@@ -478,30 +478,43 @@ class SetupAndRandomWhiteTest(unittest.TestCase):
         self.assertLess(SETUPS["11a"].fake_black_first, SETUPS["12a-neko"].fake_black_first)
         self.assertEqual(SETUPS["11a"].fake_black_first, FAKE_BLACK_FIRST_RANDOM_WHITE)
 
-    def test_make_board_puts_the_seers_first_and_the_medium_last(self):
+    def test_make_board_puts_the_seers_first_and_the_medium_last_and_the_dummy_after_everyone(self):
         board = make_board("11a", 3, [dict(player="A", target="D", color="白")])
-        self.assertEqual(board.players, list("ABCDEFGHIJ"))
+        self.assertEqual(board.players, list("ABCDEFGHIJ") + [DUMMY])                  # 参加者10人 + ダミー(頭数は11)
+        self.assertEqual(board.dummy, DUMMY)
+        self.assertEqual(board.roles, {**ROLES_11A, "村人": 5})                          # 山は、ダミーの分の村人を足した11枚(依頼者: 頭数にダミーを数えて、11A は村人5)
         self.assertEqual(board.claims, [("A", "占い師"), ("B", "占い師"), ("C", "占い師"), ("J", "霊能者")])
         self.assertTrue(board.random_white and board.rco)
         self.assertEqual(board.results, [{"kind": "占い", "first": True, "player": "A", "target": "D", "color": "白"}])
-        self.assertEqual(make_board("10a-kari", 2).players, list("ABCDEFGHI"))
+        kari = make_board("10a-kari", 2)
+        self.assertEqual(kari.players, list("ABCDEFGHI") + [DUMMY])                     # 10A狩: 参加者9人 + ダミー。山の村人は4(依頼者の訂正)
+        self.assertEqual(kari.roles["村人"], 4)
+        self.assertEqual(sum(kari.roles.values()), 10)
         neko = make_board("12a-neko", 2)
-        self.assertEqual((neko.players[-1], neko.claims[-1], neko.random_white, neko.fake_black_first), ("K", ("K", "霊能者"), False, FAKE_BLACK_FIRST))
+        self.assertEqual((neko.players[-1], neko.claims[-1], neko.random_white, neko.fake_black_first, neko.dummy), ("K", ("K", "霊能者"), False, FAKE_BLACK_FIRST, None))
         self.assertTrue(make_board("12a-neko", 2, random_white=True).random_white)    # 約束事を上書きできる
+        plain = make_board("11a", 2, missing=False)
+        self.assertEqual((plain.dummy, plain.players, plain.roles), (None, list("ABCDEFGHIJ"), ROLES_11A))                 # 役欠けなし: ダミーは村人で、参加者10人ぶんの山
+        self.assertEqual(make_board("12a-neko", 2, missing=True).roles["村人"], 4)
+        self.assertEqual(setup_roles("10a-kari"), ({**ROLES_10A_KARI, "村人": 4}, True))
         with self.assertRaises(ValueError):
             make_board("10a-kari", 9)
 
     def test_a_first_day_black_cannot_come_from_the_real_seer_under_random_white(self):
         black = [dict(player="A", target="C", color="黒")]
-        on = enumerate_worlds(make_board("11a", 2, black))
+        on = enumerate_worlds(make_board("11a", 2, black, missing=False))
         self.assertTrue(on)
         self.assertTrue(all(w.assign["A"] != "占い師" for w in on))                    # 黒を出した A は、必ず偽
-        self.assertTrue(all(w.assign["B"] == "占い師" for w in on))                    # もう一方の B が本物
-        shares = shares_of(make_board("11a", 2, black), on)
+        self.assertTrue(all(w.assign["B"] == "占い師" for w in on))                    # 役欠けなしなら、もう一方の B が本物
+        shares = shares_of(make_board("11a", 2, black, missing=False), on)
         self.assertEqual(shares["B"]["真"], 1.0)
         self.assertEqual(shares["A"]["真"], 0.0)
-        off = enumerate_worlds(make_board("11a", 2, black, random_white=False))
+        off = enumerate_worlds(make_board("11a", 2, black, random_white=False, missing=False))
         self.assertTrue(any(w.assign["A"] == "占い師" for w in off))                   # ランオフなら、本物の黒もありうる
+        missing = enumerate_worlds(make_board("11a", 2, black))                        # 役欠けあり: 占いが欠けていれば、B も偽でありうる
+        self.assertTrue(all(w.assign["A"] != "占い師" for w in missing))
+        self.assertTrue(any(w.assign["B"] != "占い師" for w in missing))
+        self.assertGreater(shares_of(make_board("11a", 2, black), missing)["B"]["真"], 0.9)
 
     def test_only_the_first_result_is_pinned_to_white(self):
         later = [dict(player="A", target="C", color="黒", first=False)]
@@ -527,9 +540,12 @@ class SetupAndRandomWhiteTest(unittest.TestCase):
                              {"stage": 0, "t": "co", "player": "J", "role": "霊能者"},
                              {"stage": 0, "t": "result", "kind": "占い", "player": "A", "target": "C", "color": "黒"}]}
         board = board_at(record, 0)
-        self.assertEqual(board.roles, ROLES_11A)
+        self.assertEqual(board.roles, setup_roles("11a")[0])                            # 役欠けあり: ダミーの分の村人を足した山
+        self.assertEqual((board.dummy, board.players[-1]), (DUMMY, DUMMY))
         self.assertTrue(board.random_white)
         self.assertTrue(all(w.assign["A"] != "占い師" for w in enumerate_worlds(board)))
+        plain = board_at({**record, "missing": False}, 0)                                # 記録で、役欠けなしにもできる
+        self.assertEqual((plain.dummy, plain.roles), (None, ROLES_11A))
         old = board_at(load_record(ROOT / "knowledge/boards/log17.json"), 0)               # setup のない記録は、12A猫のまま
         self.assertEqual(old.roles, ROLES_12A_NEKO)
         self.assertFalse(old.random_white)
@@ -539,6 +555,79 @@ class SetupAndRandomWhiteTest(unittest.TestCase):
         self.assertTrue(text.startswith("11A: 占い-霊の名乗りの数"))
         self.assertIn("3-1: 定番: 真狼狂-真 | ありうる: 真狼狼-真", text)                    # 人狼2・狂人1: 偽が2人なら、狼と狂が定番
         self.assertNotIn("11A", patterns_text())                                          # 引数なしは、これまでどおり
+        self.assertNotIn("0-1:", text)                                                    # 役欠けなし: 占いの名乗りが0人の盤面は、ない
+        deck, missing = setup_roles("11a")
+        text = patterns_text(roles=deck, name="11A", missing=missing)
+        self.assertIn("0-1: 定番: なし-真", text)                                          # 役欠けあり: 占いが欠けて、だれも名乗らない盤面もある
+        self.assertIn("1-1: 定番: 真-真 | ありうる: 狼-真、真-狼、狂-真、真-狂", text)       # 欠けていて、偽だけが名乗った盤面は、ありうる
+
+
+class MissingRoleTest(unittest.TestCase):
+    """役欠け(依頼者): 村人固定だと欠けなしになる。ダミー(初日犠牲者)は、人狼以外のどれにもなりうる。頭数にダミーを数える(10A狩は村人4)。"""
+
+    def board(self, seers="AB", results=None):
+        results = results if results is not None else [dict(player="A", target="C", color="白"), dict(player="B", target="D", color="白")]
+        return make_board("10a-kari", len(seers), results)
+
+    def test_the_dummy_is_dead_from_the_start_and_takes_any_non_wolf_role(self):
+        board = self.board()
+        self.assertEqual(board.alive, list("ABCDEFGHI"))
+        self.assertEqual(board.dead, [DUMMY])
+        worlds = enumerate_worlds(board)
+        roles = {w.assign[DUMMY] for w in worlds}
+        self.assertEqual(roles, {"占い師", "霊能者", "狩人", "狂人", "村人"})              # 人狼以外の全てが欠けうる
+        self.assertNotIn("人狼", roles)
+        self.assertEqual(board.key_players()[-1], DUMMY)
+
+    def test_the_dummy_role_follows_the_cards_in_the_deck(self):
+        board = make_board("10a-kari", 0, [], rco=False)                                  # 名乗りも結果もない: 山からの無作為な1枚(人狼以外)
+        board.claims = []
+        worlds = enumerate_worlds(board)
+        weight = {}
+        for w in worlds:
+            weight[w.assign[DUMMY]] = weight.get(w.assign[DUMMY], 0.0) + w.weight
+        total = sum(weight.values())
+        self.assertAlmostEqual(weight["村人"] / total, 4 / 8)                              # 人狼以外の8枚のうち、村人が4枚
+        self.assertAlmostEqual(weight["占い師"] / total, 1 / 8)
+        self.assertAlmostEqual(weight["狂人"] / total, 1 / 8)
+
+    def test_a_missing_seer_leaves_only_fake_seers_and_is_a_plain_possibility(self):
+        worlds = [w for w in enumerate_worlds(self.board()) if w.assign[DUMMY] == "占い師"]
+        self.assertTrue(worlds)
+        for w in worlds:
+            self.assertTrue(all(w.assign[p] != "占い師" for p in "AB"))                  # 名乗った2人は、どちらも偽
+            self.assertEqual(w.tier, 2)                                                   # ありうる
+            self.assertIn(REASON_MISSING["占い師"], w.reasons)
+
+    def test_a_real_seer_who_did_not_claim_is_still_excluded_by_rco(self):
+        board = self.board()
+        for w in enumerate_worlds(board):
+            seer_holders = [p for p, r in w.assign.items() if r == "占い師"]
+            self.assertTrue(seer_holders)                                                 # 占いの本物は、名乗った人か、ダミー(欠け)。灰に潜んでいる世界はない
+            self.assertTrue(all(p in "AB" or p == DUMMY for p in seer_holders))
+            self.assertEqual(len(w.left) and w.left["占い師"], 0)
+
+    def test_without_the_dummy_nothing_changes(self):
+        plain = make_board("11a", 2, [dict(player="A", target="C", color="白"), dict(player="B", target="D", color="白")], missing=False)
+        self.assertEqual(len(enumerate_worlds(plain)), 30)                               # 役欠けなしの数え方は、これまでどおり
+        shares = shares_of(plain)
+        self.assertAlmostEqual(shares["A"]["真"], 0.5)
+
+    def test_the_confirmed_lists_never_name_the_dummy(self):
+        board = self.board()
+        worlds = enumerate_worlds(board)
+        c = confirmed(board, worlds, 1)
+        self.assertNotIn(DUMMY, c["白"] + c["黒"])
+
+    def test_the_random_white_of_the_real_seer_makes_a_missing_seer_less_likely(self):
+        results = [dict(player="A", target="C", color="白"), dict(player="B", target="D", color="白")]
+
+        def missing_share(random_white):
+            board = make_board("10a-kari", 2, results, random_white=random_white)
+            ws = enumerate_worlds(board)
+            return sum(w.weight for w in ws if w.assign[DUMMY] == "占い師") / sum(w.weight for w in ws)
+
+        self.assertLess(missing_share(True), missing_share(False))                       # 本物の白は、人狼でない人から無作為なので、その分だけ本物がいる世界の重みが大きい
 
 
 if __name__ == "__main__":
