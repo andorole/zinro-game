@@ -22,14 +22,14 @@
 | `logs/raw/<id>.txt` | 貼り付けた生ログ | 管理外 |
 | `logs/normalized/<id>.json` | 時系列に直し、名前を A, B, C に置き換えたもの | 管理外 |
 | `logs/private/<id>.players.json` | 匿名名と実名の対応 | 管理外 |
-| `zinro_learn/` | 取り込み(`parse.py`。人狼の「仲間」の通知と夜チャットも読む)・役職・夜の行動・通知・死亡の読み取り(`roles.py`)・盤面整理(`board.py`。公開された情報に合う役職の割り当て、確定した黒白、縄、初手の結果の癖を入れた、名乗った人の種類の見込み)・進行の比較(`progress.py`。占いロラ・グレランなどの、村の勝率の試算。占いの夜の結果・狼の噛み方・狩人の護衛・猫又の道連れと対抗猫・同数のときの票(RPP)を選べる)・統計(`analyze.py`。議論が2日以上のログは、日ごとの内訳も出す)・整合性チェックと型の表の同期(`check.py`)・連投と返信の型の集計(`structure.py`) | 管理 |
+| `zinro_learn/` | 取り込み(`parse.py`。人狼の「仲間」の通知と夜チャットも読む)・役職・夜の行動・通知・死亡の読み取り(`roles.py`)・盤面整理(`board.py`。公開された情報に合う役職の割り当て、確定した黒白、縄、初手の結果の癖を入れた、名乗った人の種類の見込み)・進行の比較(`progress.py`。占いロラ・グレランなどの、村の勝率の試算。占いの夜の結果・狼の噛み方・狩人の護衛と狩人のギドラ・猫又の道連れと対抗猫・同数のときの票(RPP)を選べる。毎朝、盤面を数え直して人狼の見込みがいちばん高い人を吊る進行[尤度吊り]もある)・昼ごとの盤面の出力(`playout.py`。昼1・昼2・昼3・昼4の盤面と人狼の見込み、吊り先)・統計(`analyze.py`。議論が2日以上のログは、日ごとの内訳も出す)・整合性チェックと型の表の同期(`check.py`)・連投と返信の型の集計(`structure.py`) | 管理 |
 | `knowledge/discussion_style.md` | 議論の型・長さ・語彙と、プロンプト用の要約 | 管理 |
 | `knowledge/playbook.md` | 立ち回りの観察 | 管理 |
 | `knowledge/reply_structure.md` | 返信の構造(連投、複数への返信、遅れた返信、返さない発言)と、設計メモ | 管理 |
 | `knowledge/examples.jsonl` | 局面ごとの発言例(標準語に言い換えたもの) | 管理 |
 | `knowledge/bot_prompt.md` | ボットへの指示(守ること、手順、局面別、出力形式)。調査結果を指示の形に直したもの。占いなしの4A・5A が前提 | 管理 |
-| `knowledge/board_12a.md` | 盤面整理(12A猫)のメモ。依頼者に聞いた環境(2-1 は真狼-真が定番、3-1 は真狂狼 7.5 : 真狼狼 2.5、霊はだいたい真、初手の対抗白は8割偽目、初手の黒は真目で3-1 の対抗黒は結構真目)、盤面整理の手順、結果の出し方の癖、11A のメモとの関係、名乗りの数ごとの可能性、縄と灰詰め、log17 の盤面の動き、確認したいこと | 管理 |
-| `knowledge/board_10a_11a.md` | 盤面整理(10A狩・11A)のメモ。比較的簡単な配役で、人狼online では基本的に白ランオン(初日に白が出る環境。本物の占い師の初日の結果は無作為な白)でやる、という依頼者の話。白ランオンの扱い(初日の黒は偽の証拠)、名乗りの数ごとの可能性、進行の比較(グレー・占いロラ・黒スト・ロラ完遂)の試算、確認したいこと | 管理 |
+| `knowledge/board_12a.md` | 盤面整理(12A猫)のメモ。依頼者に聞いた環境(2-1 は真狼-真が定番、3-1 は真狂狼 7.5 : 真狼狼 2.5、霊はだいたい真、初手の対抗白は8割偽目、初手の黒は真目で3-1 の対抗黒は結構真目)、盤面整理の手順、結果の出し方の癖、11A のメモとの関係、名乗りの数ごとの可能性、縄と灰詰め、進行の比較(猫又・狩人のギドラ)、昼2〜昼4の盤面と尤度吊り、log17 の盤面の動き、確認したいこと | 管理 |
+| `knowledge/board_10a_11a.md` | 盤面整理(10A狩・11A)のメモ。比較的簡単な配役で、人狼online では基本的に白ランオン(初日に白が出る環境。本物の占い師の初日の結果は無作為な白)でやる、という依頼者の話。白ランオンの扱い(初日の黒は偽の証拠)、名乗りの数ごとの可能性、進行の比較(グレー・占いロラ・黒スト・ロラ完遂)の試算、昼2〜昼4の盤面と尤度吊り(毎朝、盤面を数え直して、いちばん人狼らしい人を吊る進行)、確認したいこと | 管理 |
 | `knowledge/boards/<id>.json` | 盤面の記録(公開された情報だけ。名乗り・結果・処刑・死亡を、段階ごとに)。`board` コマンドの入力。log16(6A)、log17(12A猫) | 管理 |
 | `knowledge/normal_12a.md` | 通常配役(12A猫)のメモ。役職、通知と行の書式、1日の進行、CO と結果の書式、人狼の夜チャット、分かったことと分からないこと。12A猫の練習部屋の出発点(元は log17 の1本) | 管理 |
 | `knowledge/seer_6a7a.md` | 依頼者が持ち込んだ、占い入りの小人数(6A・7A)の確率論メモ。実戦の勝率ではなく、読みゼロ・双方最善の理論値。6A の指示の元(練習部屋) | 管理 |
@@ -47,7 +47,7 @@ python -m zinro_learn stats logs/normalized/<id>.json
 python -m zinro_learn timeline logs/normalized/<id>.json   # 役職、夜の行動と通知、死亡、人狼の夜チャットを、夜と昼の順に並べる
 python -m zinro_learn board knowledge/boards/<id>.json     # 盤面整理: 段階ごとの、合う役職の割り当て(真・狼・狂)、定番／ありうる／まれ、名乗った人の種類の見込み、確定した黒白、縄
 python -m zinro_learn board --patterns [--setup 11a|10a-kari]  # 名乗りの数(占い-霊)ごとの、名乗りの種類の組み合わせ(既定は12A猫)
-python -m zinro_learn progress [--setup 12a-neko|11a|10a-kari] [--random-white on|off] --seers 3 [--result A:B:黒] [--guard none|medium|blacksayer|env] [--cat off|hidden|open|counter|gidra] [--hunter off|gidra|fake] [--seers-first] [--no-reads] [--no-rpp] [--no-seer-results] [--posterior]  # 進行の比較: 12A猫(既定)・11A・10A狩(白ランオン。10A狩の人数は推測)の3-1などで、グレー・占いロラ・黒スト・ロラ完遂の、村の勝率の試算。既定は、護衛 env(黒を出した占い、なければ霊能)・猫又 gidra(黒を刺されたら・指定されたら名乗る)・先黒吊り・村は霊能の報告で占いを読む・占いの夜の結果あり・人外側の同数の票(RPP)あり・狩人は名乗らない。--seers-first は占い吊り優先、--no-reads・--no-rpp・--no-seer-results はそれぞれの操作なし。--cat counter は猫が名乗り、対抗猫が出て猫吊り。--hunter gidra は指定された狩人が名乗る、fake は人外も昼1の指定で偽の狩人を名乗る(仮の割合)。--posterior は、毎朝その時点の公開情報に合う世界を数え直して、人狼の見込みがいちばん高い人を吊る進行(尤度吊り)も比べる(遅い)
+python -m zinro_learn progress [--setup 12a-neko|11a|10a-kari] [--random-white on|off] --seers 3 [--result A:B:黒] [--guard none|medium|blacksayer|env] [--cat off|hidden|open|counter|gidra] [--hunter off|gidra|fake] [--seers-first] [--no-reads] [--no-rpp] [--no-seer-results] [--posterior]  # 進行の比較: 12A猫(既定)・11A・10A狩(白ランオン。10A狩の人数は推測)の3-1などで、グレー・占いロラ・黒スト・ロラ完遂の、村の勝率の試算。既定は、護衛 env(黒を出した占い、なければ霊能)・猫又 gidra(黒を刺されたら・指定されたら名乗る)・先黒吊り・村は霊能の報告で占いを読む・占いの夜の結果あり・人外側の同数の票(RPP)あり・狩人は指定されたら名乗ることがある。--seers-first は占い吊り優先、--no-reads・--no-rpp・--no-seer-results はそれぞれの操作なし。--cat counter は猫が名乗り、対抗猫が出て猫吊り。--hunter gidra(既定)は指定された狩人が名乗る(10A狩・11A は必ず=当然狩CO、12A猫は仮 0.7=依頼者: 指定されたらギドラの場合あり)、off は名乗らない、fake は人外も昼1の指定で偽の狩人を名乗る(仮の割合)。--posterior は、毎朝その時点の公開情報に合う世界を数え直して、人狼の見込みがいちばん高い人を吊る進行(尤度吊り)も比べる(遅い)
 python -m zinro_learn playout [--setup 12a-neko|11a|10a-kari] --seers 2 [--result A:C:白 ...] [--policy posterior] [--bite grey|claim] [--seed 1]  # 役職を無作為に配った1試合を動かして、昼1・昼2・昼3・昼4…の盤面(合う世界、人ごとの人狼の見込み、吊り先、夜の死亡、霊能の報告)を並べる
 python -m zinro_learn sync      # 発言例から、ガイドの「発言の型」の表を作り直す
 python -m zinro_learn check     # knowledge/ の整合性を調べる(問題があれば終了コード 1)

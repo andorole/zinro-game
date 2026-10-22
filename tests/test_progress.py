@@ -581,10 +581,36 @@ class HunterGidraTest(unittest.TestCase):
         after = kinds[kinds.index(("hunter", "D")) + 1]
         self.assertEqual(after, ("hang", "A"))                                           # 2人の狩人が名乗ったので、先に出た偽の A を吊る
 
+    def test_a_designated_hunter_always_comes_out_in_10a_and_11a_but_only_sometimes_in_12a(self):
+        """依頼者: 10A狩・11A は、指定された狩人は当然狩COする(ギドラはない)。12A猫は、狩人も指定されたらギドラの「場合あり」(割合は仮)。"""
+        from zinro_learn.board import SETUPS
+
+        self.assertEqual((SETUPS["11a"].hunter_co, SETUPS["10a-kari"].hunter_co), (1.0, 1.0))
+        self.assertIsNone(SETUPS["12a-neko"].hunter_co)
+        self.assertEqual(make_board("11a", 2, []).hunter_co, 1.0)
+        self.assertIsNone(make_board("12a-neko", 2, []).hunter_co)
+
+        class Rng(FirstRng):
+            def random(self):
+                return 0.9                                                               # 0.7 は超え、1 は超えない
+
+        def comes_out(board, roles):
+            trace: list = []
+            play(prepare(board), roles, "grey", "grey", Rng(), trace, seer_results=False, cat="off", hunter="gidra")
+            return ("hunter", "C", "指定") in trace
+
+        board11 = make_board("11a", 2, [dict(player="A", target="B", color="白"), dict(player="B", target="D", color="白")])
+        roles11 = {"A": "人狼", "B": "占い師", "C": "狩人", "D": "村人", "E": "村人", "F": "村人", "G": "人狼", "H": "狂人", "I": "村人", "J": "霊能者", DUMMY: "村人"}
+        self.assertTrue(comes_out(board11, roles11))                                     # 11A: 0.9 < 1 で、指定された狩人 C は名乗る
+        board11.hunter_co = None                                                         # 12A猫と同じ扱い(GIDRA_HUNTER)にすると
+        self.assertFalse(comes_out(board11, roles11))                                    # 0.9 >= 0.7 で、名乗らずに吊られる
+        board11.hunter_co = 0.0
+        self.assertFalse(comes_out(board11, roles11))
+
     def test_the_standard_modes_and_the_names(self):
         self.assertEqual(HUNTERS, ("off", "gidra", "fake"))
         self.assertEqual(set(HUNTER_NAME), set(HUNTERS))
-        self.assertEqual(GIDRA_HUNTER, 1.0)                                              # 依頼者: 本指定のタイミングで、狩もギドラCOをする
+        self.assertTrue(0.5 < GIDRA_HUNTER < 1)                                          # 仮(依頼者: 本指定のタイミングで、狩もギドラCOをする。ただし、指定されたらギドラの場合あり=いつもではない)
         self.assertTrue(0 < FAKE_HUNTER_FIRST < 1)                                       # 仮
         self.assertEqual((HUNTER_COUNTER, HUNTER_BITE), (1.0, 1.0))                      # 依頼者: 本物の狩人も対抗COする。名乗った狩人は、もちろん噛みに行く
         prep, roles = self._eleven()
@@ -757,6 +783,19 @@ class PosteriorTest(unittest.TestCase):
             play(prep, roles, POSTERIOR, "grey", random.Random(1), trace, cat="off")
         self.assertTrue(any(t[0] == "hang" for t in trace))
         self.assertFalse(any(t[0] == "pick" for t in trace))
+
+    def test_the_public_board_carries_the_later_black_habit_of_the_simulation(self):
+        """夜の結果は、シミュレーションの偽の占いが黒を出す重み(FAKE_BLACK_LATER)で、盤面の世界の重みに入る(依頼者: 偽の二手目は、だいたい白)。"""
+        board = make_board("11a", 2, [dict(player="A", target="C", color="白"), dict(player="B", target="D", color="白")])
+        prep = prepare(board)
+        roles, _ = sample_world(prep, random.Random(3))
+        seen: list = []
+        play(prep, roles, POSTERIOR, "grey", random.Random(1), cat="off", observer=lambda day, pb, ws, wp, target: seen.append(pb.fake_black_later))
+        self.assertTrue(seen and set(seen) == {FAKE_BLACK_LATER})
+        seen.clear()
+        with mock.patch("zinro_learn.progress.FAKE_BLACK_LATER", 0.3):
+            play(prep, roles, POSTERIOR, "grey", random.Random(1), cat="off", observer=lambda day, pb, ws, wp, target: seen.append(pb.fake_black_later))
+        self.assertTrue(seen and set(seen) == {0.3})
 
     def test_the_observer_sees_the_deaths_and_reports_pile_up(self):
         board = make_board("10a-kari", 2, [dict(player="A", target="C", color="白"), dict(player="B", target="D", color="白")])

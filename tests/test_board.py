@@ -5,7 +5,7 @@ from itertools import permutations
 from pathlib import Path
 
 from zinro_learn.board import (
-    DUMMY, FAKE_BLACK_FIRST, FAKE_BLACK_FIRST_RANDOM_WHITE, REASON_MISSING, ROLES_10A_KARI, ROLES_12A_NEKO, SETUPS, Board, board_at, claim_patterns, confirmed,
+    DUMMY, FAKE_BLACK_FIRST, FAKE_BLACK_FIRST_RANDOM_WHITE, FAKE_BLACK_LATER, REASON_MISSING, ROLES_10A_KARI, ROLES_12A_NEKO, SETUPS, Board, board_at, claim_patterns, confirmed,
     enumerate_worlds, load_record, make_board, narrowing_wins, next_hang_line, marginals, pattern_label, patterns_text, result_factor, rope_slack, setup_roles,
     stage_report, type_shares, world_judgement,
 )
@@ -218,9 +218,10 @@ class EnvironmentTreatmentTest(unittest.TestCase):
             board = self.neko("AB", [{"player": "A", "target": target, "color": "黒"}])
             first = shares_of(board)["A"]["真"]
             self.assertGreater(first, 0.5, target)
-            later = self.neko("AB", [{"player": "A", "target": target, "color": "黒"}])
-            later.results[0]["first"] = False                              # 二手目以降は、癖を聞いていないので数えない
-            self.assertGreater(first, shares_of(later)["A"]["真"] + 0.1, target)
+            plain = self.neko("AB", [{"player": "A", "target": target, "color": "黒"}])
+            plain.results[0]["first"] = False
+            plain.fake_black_later = 1.0                                   # 偽の黒を割り引かない(癖を数えない)盤面と比べる
+            self.assertGreater(first, shares_of(plain)["A"]["真"] + 0.1, target)
             # 偽が初手に黒を出す割合が高いほど、真目は薄れる(人外の凸が最良手でない、という話が効いている)
             self.assertLess(shares_of(board, fake_black_first=0.5)["A"]["真"], first, target)
 
@@ -239,9 +240,10 @@ class EnvironmentTreatmentTest(unittest.TestCase):
         for seers in ("AB", "ABC", "ABCD"):                                               # 名乗りが増えても、初手の黒は真目の方へ動く
             for target in ("B", "E"):
                 first = self.neko(seers, [{"player": "A", "target": target, "color": "黒"}])
-                later = self.neko(seers, [{"player": "A", "target": target, "color": "黒"}])
-                later.results[0]["first"] = False
-                self.assertGreater(shares_of(first)["A"]["真"], shares_of(later)["A"]["真"] + 0.1, (seers, target))
+                plain = self.neko(seers, [{"player": "A", "target": target, "color": "黒"}])
+                plain.results[0]["first"] = False
+                plain.fake_black_later = 1.0                                              # 偽の黒を割り引かない(癖を数えない)盤面と比べる
+                self.assertGreater(shares_of(first)["A"]["真"], shares_of(plain)["A"]["真"] + 0.1, (seers, target))
 
     def test_a_first_move_white_on_grey_does_not_lean_either_way(self):
         board = self.neko("AB", [{"player": "A", "target": "D", "color": "白"}])
@@ -269,7 +271,7 @@ class EnvironmentTreatmentTest(unittest.TestCase):
         for _, p, sh in type_shares(board, enumerate_worlds(board)):
             self.assertAlmostEqual(sum(sh.values()), 1.0, msg=p)
 
-    def test_the_result_factor_only_touches_a_fakes_first_seer_result(self):
+    def test_the_result_factor_only_touches_a_fakes_seer_blacks(self):
         board = Board(players=list("ABCDEFGHIJK"), roles=dict(ROLES_12A_NEKO))
         board.results = [{"kind": "占い", "player": "A", "target": "D", "color": "黒", "first": True}]
         f = FAKE_BLACK_FIRST
@@ -279,12 +281,32 @@ class EnvironmentTreatmentTest(unittest.TestCase):
         self.assertEqual(result_factor(board, {"A": "占い師", "D": "人狼"}), 1.0)                   # 本物は、真偽の条件で決まる
         board.results[0]["color"] = "白"
         self.assertEqual(result_factor(board, {"A": "人狼", "D": "村人"}), 1.0)                     # 偽の白は、割り引かない
-        board.results[0]["first"] = False                                                         # 二手目以降は、かけない
+        board.results[0]["first"] = False                                                         # 二手目以降の夜は、FAKE_BLACK_LATER(偽の二手目は、だいたい白)
+        self.assertEqual(result_factor(board, {"A": "人狼", "D": "村人"}), 1.0)
         board.results[0]["color"] = "黒"
+        self.assertAlmostEqual(result_factor(board, {"A": "人狼", "D": "村人"}), FAKE_BLACK_LATER)
+        self.assertAlmostEqual(result_factor(board, {"A": "狂人", "D": "村人"}), FAKE_BLACK_LATER)
+        self.assertEqual(result_factor(board, {"A": "人狼", "D": "人狼"}), 1.0)
+        self.assertEqual(result_factor(board, {"A": "占い師", "D": "人狼"}), 1.0)
+        board.fake_black_later = 0.5                                                              # 盤面の数字を使う
+        self.assertAlmostEqual(result_factor(board, {"A": "人狼", "D": "村人"}), 0.5)
+        board.results[0].update(first=True, kind="霊能")                                           # 霊能の結果は、かけない
         self.assertEqual(result_factor(board, {"A": "人狼", "D": "村人"}), 1.0)
-        self.assertEqual(result_factor(board, {"A": "人狼", "D": "村人"}), 1.0)
-        board.results[0].update(first=True, kind="霊能")                                           # 霊能の結果も、かけない
-        self.assertEqual(result_factor(board, {"A": "人狼", "D": "村人"}), 1.0)
+
+    def test_a_later_night_black_leans_real_more_than_a_first_move_black(self):
+        """依頼者の話: 偽の二手目は、だいたい白。夜の黒を偽が出す重みは、初手より小さい(FAKE_BLACK_LATER < FAKE_BLACK_FIRST)ので、本物の見込みが高い。"""
+        self.assertLess(FAKE_BLACK_LATER, FAKE_BLACK_FIRST)
+        first = self.neko("AB", [{"player": "A", "target": "D", "color": "黒"}])
+        later = self.neko("AB", [{"player": "A", "target": "D", "color": "黒"}])
+        later.results[0]["first"] = False
+        self.assertGreater(shares_of(later)["A"]["真"], shares_of(first)["A"]["真"])
+        later.fake_black_later = FAKE_BLACK_FIRST                                                 # 同じ重みなら、同じ見込み
+        self.assertAlmostEqual(shares_of(later)["A"]["真"], shares_of(first)["A"]["真"])
+        # 夜の白は、偽でも普通に出すので、見込みは動かさない
+        white_first = self.neko("AB", [{"player": "A", "target": "D", "color": "白"}])
+        white_later = self.neko("AB", [{"player": "A", "target": "D", "color": "白"}])
+        white_later.results[0]["first"] = False
+        self.assertAlmostEqual(shares_of(white_later)["A"]["真"], shares_of(white_first)["A"]["真"])
 
     def test_a_fake_that_never_charges_black_drops_those_worlds(self):
         board = self.neko("AB", [{"player": "A", "target": "D", "color": "黒"}])

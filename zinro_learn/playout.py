@@ -12,6 +12,9 @@ from .board import Board, board_report
 from .progress import POLICY_NAME, POSTERIOR, prepare, play, sample_world
 
 
+CO_KINDS = ("cat", "fakecat", "hunter", "fakehunter")                  # 吊りの指定に応じた名乗り(猫又・狩人のギドラと、対抗・偽のCO)
+
+
 def _event_line(event: tuple, roles: dict[str, str]) -> str | None:
     kind, who, extra = event
     if kind == "hang":
@@ -58,20 +61,29 @@ def playout_text(board: Board, policy: str = POSTERIOR, bite: str = "grey", seed
     lines: list[str] = []
     done = 0
 
-    def flush() -> None:
-        nonlocal done
-        for event in trace[done:]:
+    def emit(events: list) -> None:
+        for event in events:
             text = _event_line(event, roles)
             if text:
                 lines.append("  " + text)
+
+    def flush() -> None:
+        nonlocal done
+        emit(trace[done:])
         done = len(trace)
 
     def observe(day: int, pb: Board, worlds: list, wolf_p: dict[str, float], target: str) -> None:
-        flush()
+        nonlocal done
+        new = trace[done:]
+        cut = next((i for i, event in enumerate(new) if event[0] in CO_KINDS), len(new))
+        emit(new[:cut])                                                      # 前の夜のできごと。この日の指定への名乗り(ギドラ・対抗)は、盤面のあとに出す
+        done = len(trace)
         lines.append("")
         lines.append(board_report(pb, f"昼{day}の盤面"))
         if wolf_p:
             lines.append(wolf_line(pb, wolf_p))
+        emit(new[cut:])
+        if wolf_p:
             rank = 1 + sum(1 for p in pb.alive if wolf_p.get(p, 0.0) > wolf_p.get(target, 0.0) + 1e-9)
             lines.append(f"吊り先({POLICY_NAME.get(policy, policy)}): {target}(人狼の見込み {wolf_p.get(target, 0.0) * 100:.0f}%、高い方から {rank} 番目)")
         else:

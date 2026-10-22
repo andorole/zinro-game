@@ -62,9 +62,11 @@
 - 本物の占い師の初日の結果は、人狼でない人への無作為な白だけ。だから、初日に黒を出した占いは、その場で偽と分かる(村は先に吊る。霊能の報告を待たない)。
   環境の護衛は、その偽を守らない。初日に貰った白は、本物と見る占いのものだけ信じて、灰の無作為の吊りから外す(ランオフの12A猫でも同じ)。
 
-狩人のギドラ(hunter。依頼者の説明):
+狩人の狩CO(ギドラ。hunter。依頼者の説明):
 - off: 狩人は名乗らない(指定されたら、そのまま吊られる)。
-- gidra: 吊りを指定された本物の狩人は、ギドラCOをして吊りを避ける(GIDRA_HUNTER。依頼者: 本指定のタイミングで、狩もギドラCOをする)。
+- gidra: 吊りを指定された本物の狩人は、狩COをして吊りを避ける。その割合は、10A狩・11A では 1(依頼者: 当然狩COする。ギドラはない。盤面の hunter_co)。
+  12A猫では GIDRA_HUNTER(依頼者: 本指定のタイミングで、狩もギドラCOをする。ただし「狩人も指定されたらギドラの場合あり」で、いつもではない。割合は仮)。
+  名乗らなかった狩人は、そのまま吊られる。
   村は、名乗った人を除いて、吊り先を選び直す。名乗った狩人は、ほかに候補があるあいだ吊られない(狩COを偽と割り切って吊る「狩貫通」は、
   初手にはしない、と聞いた。後の日の狩貫通は、いまは入れていない)。名乗っている狩人(人狼でない)は、狼が HUNTER_BITE の割合で噛みに来る(依頼者: もちろん噛みに行く)。
   2人の狩人が名乗ったら、先に出た方を吊る(猫吊りと同じ置き方)。
@@ -80,11 +82,11 @@
   人狼3・狂人1・村4(昼2。真猫を吊って道連れが村に当たった形)では、村の勝ちは 1/32(約 3%)になる(依頼者: ほぼ負け)。
 - 人外側に狂人がいないと、人数が同数以上の時点で人狼の勝ちなので、この操作は起きない。
 
-標準(`python -m zinro_learn progress` と、知識メモの表): 護衛 env、猫又 gidra、同数の票あり。関数の既定は、護衛なし・猫又 hidden・同数の票あり
+標準(`python -m zinro_learn progress` と、知識メモの表): 護衛 env、猫又 gidra、狩人 gidra、同数の票あり。関数の既定は、護衛なし・猫又 hidden・狩人 off・同数の票あり
 (試験と、11A のメモとの比較のため。呼ぶ側が選ぶ)。
 
-入れていないもの(大きなもの): 2-2 での猫の出方(霊能2人の盤面が未対応)、狩人のギドラCO、黒なしで指定された人外の偽の狩人COと炙り
-(依頼者: 狩貫通は初手にはしないので、偽の狩人COは初手の回避に通りやすい)、3日目の猫CO、票が割れること、発言からの村の読み
+入れていないもの(大きなもの): 2-2 での猫の出方(霊能2人の盤面が未対応)、黒なしで指定された人外の偽の狩人COと炙りのうち、炙り
+(偽の狩人COは hunter が fake で選べる。依頼者: 狩貫通は初手にはしないので、偽の狩人COは初手の回避に通りやすい)、狩人が最初から狩COする形、3日目の猫CO、票が割れること、発言からの村の読み
 (霊能の報告からの読みは reads で入れた)。
 狂人は、人間として数える。人狼が人間と同数以上になれば、人狼の勝ち。人狼が全滅すれば、村の勝ち。
 """
@@ -97,9 +99,8 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from itertools import accumulate
 
-from .board import Board, World, enumerate_worlds, marginals, pattern_label
+from .board import FAKE_BLACK_LATER, Board, World, enumerate_worlds, marginals, pattern_label
 
-FAKE_BLACK_LATER = 0.05          # 仮。偽の占いが、2日目以降の夜に、人狼でない人へ黒を出す重み(白を出す場合を 1)。初手(0.15)より小さい
 ENCLOSE_NEXT = 0.5               # 仮。偽の人狼が、次手(夜1の結果)で、灰の仲間に白を出す(囲う)割合
 OPEN_CAT_BITE = 0.2              # 仮。名乗っている猫又を、人狼2人・夜に6人のときに、狼が噛む割合(依頼者: たまに噛む。最近はあまり噛まない)
 COUNTER_CAT = 0.7                # 依頼者の話(その割合でよい。対抗猫はまあまあ出る)。猫又が名乗ったあと、対抗の猫(偽の猫)が出る割合
@@ -109,12 +110,13 @@ FAKE_CAT_PROACTIVE = 0.15        # 仮。gidra で、偽の猫が、真猫より
 COUNTER_CAT_BLACK = 0.9           # 仮。黒を刺された猫が名乗ると、人狼側は猫を確定させたくないので、対抗猫がほぼ出る(依頼者: 対抗が出て、真猫が貫通されるのが基本)
 CAT_HIDE_SEERS_FIRST = 0.5        # 仮。占い吊り優先の進行(黒先を吊らない)のとき、黒を刺された猫が伏せる割合(依頼者: 伏せる可能性がある。噛まれないので、出てもよいとも思う)
 GIDRA_CAT = 1.0                  # 依頼者の話(指定されてのギドラは推奨。指示役が単体で出してほしいと言えば、単体で出る)。指定された猫が名乗る割合
-GIDRA_HUNTER = 1.0               # 依頼者の話(本指定のタイミングで、指定された狩人もギドラCOをする)。指定された狩人が名乗る割合
+GIDRA_HUNTER = 0.7               # 仮。12A猫で、指定された狩人が名乗る割合(依頼者: 本指定のタイミングで、狩もギドラCOをする。ただし「狩人も指定されたらギドラの場合あり」で、いつもではない)。
+                                 # 10A狩・11A は、盤面 board.hunter_co(1。依頼者: 当然狩COする。ギドラはない)が優先
 FAKE_HUNTER_FIRST = 0.5          # 仮。fake で、黒なしで昼1に指定された人狼・狂人が、偽の狩人COで吊りを避ける割合(依頼者: 初手の回避は狩が良いことがある。狩貫通は初手にはしない。かなり悩ましい)
 HUNTER_COUNTER = 1.0             # 依頼者の話(本物の狩人も対抗COする)。偽の狩人が出たとき、本物の狩人が対抗として出る割合
 HUNTER_BITE = 1.0                # 依頼者の話(もちろん噛みに行く)。名乗っている狩人(人狼でない)を、狼が噛みに来る割合
 HUNTERS = ("off", "gidra", "fake")
-HUNTER_NAME = {"off": "狩人は名乗らない", "gidra": "狩人は指定されたら名乗る", "fake": "狩人は指定されたら名乗り、人外も昼1の指定で偽の狩人を名乗る"}
+HUNTER_NAME = {"off": "狩人は名乗らない", "gidra": "狩人は指定されたら名乗る(12A猫は場合あり)", "fake": "狩人は指定されたら名乗り、人外も昼1の指定で偽の狩人を名乗る"}
 CATS = ("off", "hidden", "open", "counter", "gidra")
 CAT_NAME = {"off": "猫又の力なし", "hidden": "猫又は隠れている", "open": "猫又は名乗っている", "counter": "猫又は名乗り、対抗猫が出る",
             "gidra": "猫又は隠れていて、黒を刺されたら・指定されたら名乗る"}
@@ -210,12 +212,13 @@ def play(prep: Prepared, roles: dict[str, str], policy: str, bite: str, rng: ran
     尤度吊り(policy が posterior)は、毎朝この盤面から、人狼の見込みがいちばん高い人を吊る(黒を出された人や偽と分かった占いも、見込みで決まる)。
     black_first が偽なら、占い吊り優先: 占いを吊る進行は、黒を出された人(黒先)より、占いの名乗りを先に吊る(黒先は、占いを吊り終えてから)。
     reads が真なら、村は霊能の報告で占いを読む(偽と分かった占いを先に吊る。結果は信じない。黒を当てた占いを、本物と見る)。
-    hunter は、狩人のギドラ(off=名乗らない、gidra=指定された本物の狩人が名乗る、fake=人外も昼1の指定で偽の狩人を名乗る)。"""
+    hunter は、狩人の狩CO(ギドラ)(off=名乗らない、gidra=指定された本物の狩人が名乗る、fake=人外も昼1の指定で偽の狩人を名乗る)。"""
     if cat not in CATS:
         raise ValueError(f"知らない猫又の扱い: {cat}")
     if hunter not in HUNTERS:
         raise ValueError(f"知らない狩人の扱い: {hunter}")
     board = prep.board
+    hunter_co = GIDRA_HUNTER if board.hunter_co is None else board.hunter_co        # 指定された狩人が狩COする割合(10A狩・11A は 1)
     black_sayer = next((r["player"] for r in board.results if r["kind"] == "占い" and r["color"] == "黒"), None)
     if board.random_white:
         black_sayer = None                                # 白ランオン: 初日の黒を出した占いは偽と分かるので、環境の護衛は守らない
@@ -277,7 +280,7 @@ def play(prep: Prepared, roles: dict[str, str], policy: str, bite: str, rng: ran
         return Board(players=list(board.players), roles=dict(board.roles), claims=list(board.claims), results=results,
                      executed=[*board.executed, *exec_order], bitten=[*board.bitten, *bitten_order], other_dead=[*board.other_dead, *other_dead],
                      wolf_co=list(board.wolf_co), ongoing=True, rco=board.rco, random_white=board.random_white,
-                     fake_black_first=board.fake_black_first, dummy=board.dummy)
+                     fake_black_first=board.fake_black_first, fake_black_later=FAKE_BLACK_LATER, hunter_co=board.hunter_co, dummy=board.dummy)
 
     def look() -> tuple[Board, list[World], dict[str, float]]:
         """公開された盤面と、合う世界と、生きている人ごとの人狼の見込み(重みの割合)。合う世界がなければ、見込みは空。"""
@@ -478,7 +481,7 @@ def play(prep: Prepared, roles: dict[str, str], policy: str, bite: str, rng: ran
                     target = fake_cat if fake_first else real_cat
                     break
                 spared = True
-            elif hunter != "off" and target == real_hunter and target not in hunter_out and rng.random() < GIDRA_HUNTER:
+            elif hunter != "off" and target == real_hunter and target not in hunter_out and rng.random() < hunter_co:
                 # 吊りを指定された狩人は、ギドラCOをして吊りを避ける(本指定のタイミングで、狩もギドラCOをする)
                 earlier = [p for p in hunter_out if p in alive]
                 hunter_out.append(target)

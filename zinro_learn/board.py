@@ -48,6 +48,9 @@ FAKE_BLACK_FIRST = 0.15
 # 白ランオン(人狼online。依頼者: 10A狩・11A は、基本的に初日に白が出る環境でやる): 本物の占い師の初日(夜0)の結果は、人狼でない人への無作為な白で、黒は出ない。
 # だから、初手に黒を出す占いは、その場で偽と分かる。偽の占いがそれでも初手に黒を出すのは、ランオフ(0.15)より少ない(仮。確認したい)。
 FAKE_BLACK_FIRST_RANDOM_WHITE = 0.05
+# 偽の占い(人狼・狂人)が、二手目以降の夜に「人狼でない人」へ黒を出す重み(白を出す場合を 1)。依頼者の話「偽の二手目は、だいたい白」に合わせて、
+# 初手(FAKE_BLACK_FIRST)より小さい(仮)。進行の試算(progress.py)で偽の占いが夜に黒を出す重みと、同じ数字にする。
+FAKE_BLACK_LATER = 0.05
 TYPE_ORDER = "真狼狂"                                    # 名乗りの種類: 本物・人狼・狂人
 
 
@@ -61,13 +64,15 @@ class Setup:
     random_white: bool                                   # 白ランオン(本物の占い師の初日の結果は、無作為な白)
     fake_black_first: float                              # 偽の占いが、初手に人狼でない人へ黒を出す重み
     missing: bool = False                                # 役欠けあり(ダミーの役職は、人狼以外のどれかで、欠けうる)
+    hunter_co: float | None = None                       # 吊りを指定された狩人が、狩COして吊りを避ける割合。None なら progress.GIDRA_HUNTER(12A猫の「場合あり」)
 
 
 # 12A猫は、役欠けなしのまま(log17 の部屋の「役欠け:あり」の意味は、確認したい)。10A狩・11A は、役欠けあり(依頼者: 人狼以外の全てが欠けうる)。
+# 狩人: 10A狩・11A は、指定された狩人は当然狩COする(依頼者: ギドラはない。割合 1)。12A猫は、狩人も指定されたらギドラの「場合あり」(割合は仮)。
 SETUPS = {
     "12a-neko": Setup("12a-neko", "12A猫", ROLES_12A_NEKO, False, FAKE_BLACK_FIRST, False),
-    "11a": Setup("11a", "11A", ROLES_11A, True, FAKE_BLACK_FIRST_RANDOM_WHITE, True),
-    "10a-kari": Setup("10a-kari", "10A狩", ROLES_10A_KARI, True, FAKE_BLACK_FIRST_RANDOM_WHITE, True),
+    "11a": Setup("11a", "11A", ROLES_11A, True, FAKE_BLACK_FIRST_RANDOM_WHITE, True, 1.0),
+    "10a-kari": Setup("10a-kari", "10A狩", ROLES_10A_KARI, True, FAKE_BLACK_FIRST_RANDOM_WHITE, True, 1.0),
 }
 DEFAULT_SETUP = "12a-neko"
 
@@ -88,6 +93,8 @@ class Board:
     rco: bool = False                                                    # 占い・霊能の本物は、一発言目に名乗る(ロケットCO)。名乗りに本物がいない(潜伏)世界は、ない
     random_white: bool = False                                           # 白ランオン: 本物の占い師の初日の結果は、人狼でない人への無作為な白(黒は出ない)
     fake_black_first: float = FAKE_BLACK_FIRST                           # 偽の占いが、初手に人狼でない人へ黒を出す重み(白を出す場合を 1)
+    fake_black_later: float = FAKE_BLACK_LATER                           # 偽の占いが、二手目以降の夜に人狼でない人へ黒を出す重み(白を出す場合を 1)
+    hunter_co: float | None = None                                       # 吊りを指定された狩人が、狩COして吊りを避ける割合(None なら progress.GIDRA_HUNTER)
     dummy: str | None = None                                             # 役欠けあり: 初日犠牲者(最初から死んでいる)。役職は人狼以外のどれかで、占い・霊能・狩人なども欠けうる
 
     @property
@@ -146,7 +153,7 @@ def make_board(setup: str = DEFAULT_SETUP, seers: int = 2, results=(), random_wh
     if not 0 <= seers <= n - 1:
         raise ValueError("占いの名乗りの人数が多すぎる")
     board = Board(players=players + ([DUMMY] if missing else []), roles=roles, rco=rco, fake_black_first=cfg.fake_black_first,
-                  random_white=cfg.random_white if random_white is None else random_white, dummy=DUMMY if missing else None)
+                  random_white=cfg.random_white if random_white is None else random_white, hunter_co=cfg.hunter_co, dummy=DUMMY if missing else None)
     board.claims = [(p, "占い師") for p in players[:seers]] + [(players[-1], "霊能者")]
     board.results = [{"kind": "占い", "first": True, **r} for r in results]
     return board
@@ -234,27 +241,29 @@ def world_tier(board: Board, assign: dict) -> int:
 
 
 def result_factor(board: Board, assign: dict, fake_black_first: float | None = None) -> float:
-    """結果の出し方の癖(環境の話)。偽の占い(人狼・狂人)が、初手に出した結果にだけかける。
-    - 人狼でない人へ黒を出す(人外の凸): fake_black_first。最良手ではないので、白を出す場合より少ない。
+    """結果の出し方の癖(環境の話)。偽の占い(人狼・狂人)が出した占いの結果にかける。
+    - 人狼でない人へ黒を出す(人外の凸): 初手は fake_black_first、二手目以降の夜は fake_black_later(依頼者: 偽の二手目は、だいたい白)。
+      最良手ではないので、白を出す場合より少ない。
     - 白を出す: かけない(1)。偽の対抗白は、本物が出せる相手(狂人)の数え方と同じ重みで数える。
       いちばん有利な真狂狼でも、対抗白を出した側が本物なのは2割(11A のメモ)。
     本物の結果は、真偽の条件(truthful)で決まるので、かけない。人狼への黒(切り・偶然)は、段階(まれ)で扱う。
-    二手目以降と、霊能の結果は、癖を聞いていないので、かけない。
+    霊能の結果は、癖を聞いていないので、かけない。初手の囲い(偽の白が仲間に当たりやすいこと)も、入れていない。
     fake_black_first を渡さなければ、盤面(board.fake_black_first)の数字を使う(白ランオンでは、ランオフより小さい)。"""
     if fake_black_first is None:
         fake_black_first = board.fake_black_first
     factor = 1.0
     n, wolves = len(board.players), board.roles.get("人狼", 0)
     for r in board.results:
-        if r["kind"] != "占い" or not r.get("first"):
+        if r["kind"] != "占い":
             continue
-        if board.random_white and assign[r["player"]] == "占い師" and n - wolves - 1 > 0:
+        first = bool(r.get("first"))
+        if first and board.random_white and assign[r["player"]] == "占い師" and n - wolves - 1 > 0:
             factor *= (n - 1) / (n - wolves - 1)             # 本物の白は、人狼でない人から無作為(1/(n-人狼-1))で、偽の相手の選び方(1/(n-1))より、その人に当たりやすい
             continue
         if assign[r["player"]] not in ("人狼", "狂人"):
             continue
         if r["color"] == "黒" and assign[r["target"]] != "人狼":
-            factor *= fake_black_first
+            factor *= fake_black_first if first else board.fake_black_later
     return factor
 
 
@@ -494,7 +503,7 @@ def board_at(record: dict, stage: int) -> Board:
     board = Board(players=list(record["players"]) + ([DUMMY] if missing else []), roles=roles,
                   ongoing=not record["stages"][stage].get("ended", False), rco=record.get("rco", True),
                   random_white=record.get("random_white", setup.random_white), fake_black_first=record.get("fake_black_first", setup.fake_black_first),
-                  dummy=DUMMY if missing else None)
+                  fake_black_later=record.get("fake_black_later", FAKE_BLACK_LATER), hunter_co=record.get("hunter_co", setup.hunter_co), dummy=DUMMY if missing else None)
     for e in record["events"]:
         if e["stage"] > stage:
             continue
