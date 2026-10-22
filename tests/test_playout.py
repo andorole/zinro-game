@@ -15,7 +15,7 @@ class PlayoutTest(unittest.TestCase):
     """1試合を動かして、朝ごとの盤面(昼1・昼2・昼3…)を並べる(依頼者: 昼2・昼3・昼4の盤面も計算で導く)。"""
 
     def test_it_lists_the_boards_of_the_first_days_the_hang_and_the_result(self):
-        text = playout_text(board(), seed=4, guard="env", cat="off", hunter="gidra")
+        text = playout_text(board(), bite="grey", seed=4, guard="env", cat="off", hunter="gidra")      # 灰を噛む: 霊能が生き残り、報告が出る
         for needle in ("== 昼1の盤面(生存 10 人", "== 昼2の盤面", "人狼の見込み(高い順):", "吊り先(尤度吊り):", "吊り: ", "夜の襲撃: ", "霊能の報告: ", "== 結果: ", "正体: "):
             self.assertIn(needle, text)
         self.assertLess(text.index("昼1の盤面"), text.index("昼2の盤面"))
@@ -37,7 +37,7 @@ class PlayoutTest(unittest.TestCase):
     def test_the_claims_made_for_the_days_hang_come_after_the_board_and_before_the_target(self):
         """黒を刺された猫又の名乗りや、対抗の猫は、その日の盤面と見込みのあと、吊り先の前に出る(前の夜のできごとは、盤面の前)。"""
         b = make_board("12a-neko", 3, [dict(player="A", target="D", color="黒")])
-        roles = {"A": "人狼", "B": "占い師", "C": "狂人", "D": "猫又", "E": "村人", "F": "村人", "G": "人狼", "H": "村人", "I": "狩人", "J": "人狼", "K": "霊能者"}
+        roles = {"A": "人狼", "B": "占い師", "C": "狂人", "D": "猫又", "E": "村人", "F": "村人", "G": "人狼", "H": "村人", "I": "狩人", "J": "人狼", "K": "霊能者", DUMMY: "村人"}
         text = playout_text(b, seed=1, roles=roles, cat="gidra", hunter="gidra")
         lines = text.splitlines()
         first = lines.index(next(line for line in lines if line.startswith("== 昼1の盤面")))

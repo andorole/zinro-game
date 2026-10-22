@@ -10,7 +10,9 @@ from zinro_learn.progress import (
     ALL_POLICIES, BITES, CAT_HIDE_SEERS_FIRST, CATS, COUNTER_CAT, COUNTER_CAT_BLACK, COUNTER_CAT_WOLF, ENCLOSE_NEXT, FAKE_BLACK_LATER, FAKE_CAT_FIRST, FAKE_CAT_PROACTIVE,
     FAKE_HUNTER_FIRST, GIDRA_CAT, GIDRA_HUNTER, GUARDS, HUNTER_BITE, HUNTER_COUNTER, HUNTER_NAME, HUNTERS, OPEN_CAT_BITE, POLICIES, POLICY_NAME, POSTERIOR, compare,
     compare_policies, compare_text, counter_cat, hit_rates, night_result, play, prepare, sample_world, win_rate,
+    BITE_NAME, BITES_ALL, GUARD_NAME, HUNTER_GJ_CO, HUNTER_PAIR_READ, HUNTER_PAIR_WAIT,
 )
+from zinro_learn.board import HUNTER_PRE_CO
 
 
 class FirstRng:
@@ -24,6 +26,13 @@ class FirstRng:
 
     def shuffle(self, seq):
         return None
+
+
+class LastRng(FirstRng):
+    """いつも末尾を選ぶ乱数(FirstRng の反対側)。"""
+
+    def choice(self, seq):
+        return seq[-1]
 
 
 def neko(seers: str = "ABC", results=()) -> Board:
@@ -547,32 +556,57 @@ class HunterGidraTest(unittest.TestCase):
 
     def test_the_real_hunter_can_come_out_against_the_fake_and_the_designated_fake_is_hanged(self):
         prep, roles = self._eleven(A="人狼", E="狩人")
-        trace: list = []
-        play(prep, roles, "grey", "grey", FirstRng(), trace, seer_results=False, cat="off", hunter="fake")     # FirstRng の random() は 0.0: 対抗が出る側
+        with mock.patch("zinro_learn.progress.HUNTER_PAIR_WAIT", 0.0), mock.patch("zinro_learn.progress.HUNTER_PAIR_READ", 1.0):      # 放置せず、発言で偽を見抜く
+            trace: list = []
+            play(prep, roles, "grey", "grey", FirstRng(), trace, seer_results=False, cat="off", hunter="fake")     # FirstRng の random() は 0.0: 対抗が出る側
         self.assertEqual(trace[:3], [("fakehunter", "A", "指定"), ("hunter", "E", "対抗"), ("hang", "A", "人狼")])
         self.assertEqual(trace[3][0], "bite")                                            # 出た本物の狩人 E は、噛まれる(HUNTER_BITE)
         self.assertEqual(trace[3][1], "E")
 
-    def test_only_one_hunter_claim_is_made_by_the_wolf_side_on_the_first_day(self):
-        prep, roles = self._eleven(A="人狼", B="狂人", H="村人", E="狩人")
-        with mock.patch("zinro_learn.progress.HUNTER_COUNTER", 0.0):
-            trace: list = []
-            play(prep, roles, "grey", "grey", FirstRng(), trace, seer_results=False, cat="off", hunter="fake")
-        self.assertEqual([t[:2] for t in trace[:2]], [("fakehunter", "A"), ("hang", "B")])               # 人狼 A が名乗って避け、次に指定された狂人 B は、重ねて名乗らず、吊られる
-        self.assertEqual(len([t for t in trace if t[0] == "fakehunter"]), 1)
+    def test_when_two_hunters_have_come_out_the_village_hangs_the_fake_looking_one_or_leaves_both_for_a_day(self):
+        """依頼者: 偽目を吊る。これも大体は発言から。ただし、即吊りでなく、一旦放置する進行を取る場合もある。"""
+        prep, roles = self._eleven(A="人狼", E="狩人")
 
-    def test_a_fake_hunter_is_only_for_the_first_day(self):
-        prep, roles = self._eleven(B="人狼", E="村人", A="村人")
-        with mock.patch("zinro_learn.progress.HUNTER_COUNTER", 0.0):
-            trace: list = []
-            play(prep, roles, "grey", "grey", FirstRng(), trace, seer_results=False, cat="off", hunter="fake")
-        self.assertEqual(trace[0], ("hang", "A", "人間"))                                # 先頭の灰 A は村人: 吊られる
-        later = [t for t in trace if t[0] == "fakehunter"]
-        self.assertTrue(all(t[1] != "B" for t in later))                                 # 2日目以降に指定された人外は、偽の狩人を名乗らない(入れていない)
+        def first_hang(wait: float, read: float):
+            with mock.patch("zinro_learn.progress.HUNTER_PAIR_WAIT", wait), mock.patch("zinro_learn.progress.HUNTER_PAIR_READ", read):
+                trace: list = []
+                play(prep, roles, "grey", "grey", FirstRng(), trace, seer_results=False, cat="off", hunter="fake")
+            return next(t for t in trace if t[0] == "hang")
+
+        self.assertEqual(first_hang(0.0, 1.0), ("hang", "A", "人狼"))                    # 発言で偽が見抜ける: 偽の A を吊る
+        self.assertEqual(first_hang(0.0, 0.0), ("hang", "E", "人間"))                    # 見抜けない: 本物の E を吊ってしまう
+        self.assertEqual(first_hang(1.0, 1.0), ("hang", "B", "人間"))                    # 放置する日: 2人は吊らず、別の人(先頭の灰 B)を吊る
+        self.assertTrue(0 < HUNTER_PAIR_WAIT < 1 and 0.5 < HUNTER_PAIR_READ < 1)         # 仮の割合
+
+    def test_a_hunter_comes_out_on_the_first_day_to_narrow_the_grey_and_after_a_guard_success(self):
+        """依頼者: 10A狩や11A だと、グレーを狭める為に出たりする。後はGJがあった時も露出する事ある。"""
+        results = [dict(player="A", target="C", color="白"), dict(player="B", target="D", color="白")]
+        board = make_board("11a", 2, results)
+        self.assertEqual(board.hunter_pre_co, HUNTER_PRE_CO)
+        self.assertEqual(make_board("12a-neko", 2).hunter_pre_co, 0.0)                    # 12A猫は、指定される前には出ない(聞いていない)
+        roles = {"A": "人狼", "B": "占い師", "C": "村人", "D": "村人", "E": "村人", "F": "村人", "G": "人狼", "H": "狂人", "I": "狩人", "J": "霊能者", DUMMY: "村人"}
+        trace: list = []
+        seen: list = []
+
+        def watch(day, pb, worlds, wolf_p, target):
+            seen.append((day, dict(pb.pinned), list(pb.gj)))
+
+        play(prepare(board), roles, "grey", "grey", FirstRng(), trace, seer_results=False, cat="off", hunter="gidra", observer=watch)      # FirstRng の random() は 0.0: 割合があれば出る
+        self.assertEqual(trace[0], ("hunter", "I", "グレー狭め"))                          # 昼1の初めに、指定される前に出る
+        self.assertEqual(seen[0], (1, {"I": "狩人"}, []))                                 # 盤面では、狩COした I は、狩人に決まった人(グレーが狭まる)
+        quiet = make_board("11a", 2, results)
+        quiet.hunter_pre_co = 0.0
+        trace, seen = [], []
+        play(prepare(quiet), roles, "grey", "medium", FirstRng(), trace, seer_results=False, cat="off", hunter="gidra", guard="medium", observer=watch)
+        order = [t[:3] for t in trace if t[0] in ("hang", "guard", "hunter")][:3]
+        self.assertEqual(order, [("hang", "C", "人間"), ("guard", "J", ""), ("hunter", "I", "GJ")])    # 霊能を噛む夜に、霊能を護衛: GJ。翌朝、狩人が露出する
+        self.assertEqual(seen[0], (1, {}, []))
+        self.assertEqual(seen[1], (2, {"I": "狩人"}, ["J"]))                              # 護衛先 J が公開される(狼が噛みに来たので、人狼でない)
 
     def test_a_real_hunter_who_comes_out_after_a_fake_has_the_earlier_one_hanged(self):
         prep, roles = self._eleven(A="人狼", D="狩人", E="村人")
-        with mock.patch("zinro_learn.progress.HUNTER_COUNTER", 0.0), mock.patch("zinro_learn.progress.HUNTER_BITE", 0.0):
+        with mock.patch("zinro_learn.progress.HUNTER_COUNTER", 0.0), mock.patch("zinro_learn.progress.HUNTER_BITE", 0.0), \
+                mock.patch("zinro_learn.progress.HUNTER_PAIR_WAIT", 0.0), mock.patch("zinro_learn.progress.HUNTER_PAIR_READ", 1.0):
             trace: list = []
             play(prep, roles, "grey", "grey", FirstRng(), trace, seer_results=False, cat="off", hunter="fake")
         kinds = [t[:2] for t in trace]
@@ -620,8 +654,12 @@ class HunterGidraTest(unittest.TestCase):
     def test_the_hunter_gidra_helps_the_village_by_keeping_the_guard_and_the_fake_hunter_saves_the_wolf_side_on_day_one(self):
         board = neko("AB")
         off = win_rate(board, "grey", "claim", n=12000, seed=1, guard="env", cat="gidra")["rate"]
-        gidra = win_rate(board, "grey", "claim", n=12000, seed=1, guard="env", cat="gidra", hunter="gidra")["rate"]
+        with mock.patch("zinro_learn.progress.HUNTER_GJ_CO", 0.0):                         # GJのあとの露出は別に見る(下)
+            gidra = win_rate(board, "grey", "claim", n=12000, seed=1, guard="env", cat="gidra", hunter="gidra")["rate"]
         self.assertGreater(gidra, off + 0.04)                                            # 指定された狩人が名乗ると、吊られずに護衛が残る分、村が得をする
+        with mock.patch("zinro_learn.progress.HUNTER_GJ_CO", 1.0):
+            exposed = win_rate(board, "grey", "claim", n=12000, seed=1, guard="env", cat="gidra", hunter="gidra")["rate"]
+        self.assertLess(exposed, gidra - 0.05)                                           # GJのたびに露出すると、名乗った狩人を狼が噛みに来て、護衛を失う分、村が損をする(護衛先が分かる得より大きい)
         prep = prepare(board)
 
         def wolf_side_first_hang(hunter: str) -> float:
@@ -716,6 +754,60 @@ def self_board():
     return make_board("10a-kari", 2, [dict(player="A", target="C", color="白"), dict(player="B", target="D", color="白")])
 
 
+class BiteAndGuardModeTest(unittest.TestCase):
+    """依頼者: 狼が噛むのは、占いか霊能。いまの環境では、どちらかで固定されている。だから、護衛するのもどちらかでいい。"""
+
+    def _game(self, **swap):
+        board = make_board("11a", 2, [dict(player="A", target="C", color="白"), dict(player="B", target="D", color="白")])
+        board.hunter_pre_co = 0.0                                                        # 昼1の初めに狩人が出る動きは、ここでは見ない
+        roles = {"A": "人狼", "B": "占い師", "C": "村人", "D": "村人", "E": "村人", "F": "村人", "G": "人狼", "H": "狂人", "I": "狩人", "J": "霊能者", DUMMY: "村人"}
+        roles.update(swap)
+        return prepare(board), roles
+
+    def _first_night(self, bite, rng=None, **kw):
+        prep, roles = self._game(**kw.pop("swap", {}))
+        trace: list = []
+        play(prep, roles, "grey", bite, rng or FirstRng(), trace, seer_results=False, cat="off", **kw)
+        return next(t[:2] for t in trace if t[0] in ("bite", "guard")), trace
+
+    def test_the_new_modes_are_named(self):
+        self.assertEqual(BITES, ("grey", "claim"))                                       # 表の標準は、これまでどおり
+        self.assertEqual(BITES_ALL, ("grey", "claim", "seer", "medium"))
+        self.assertTrue(all(b in BITE_NAME for b in BITES_ALL) and "either" in GUARD_NAME and "either" in GUARDS)
+
+    def test_a_seer_bite_goes_for_a_seer_claim_that_is_not_a_wolf(self):
+        night, _ = self._first_night("seer")
+        self.assertEqual(night, ("bite", "B"))                                           # A は偽の占いだが人狼(仲間)。噛むのは、本物の B
+        night, _ = self._first_night("seer", swap=dict(A="村人", B="人狼", C="占い師"))
+        self.assertEqual(night, ("bite", "A"))                                           # 狼は、狂人や村人の偽でも見分けられない: 人狼でない占いの名乗りは A
+
+    def test_a_medium_bite_goes_for_the_medium_and_falls_back_to_the_seer_then_the_grey(self):
+        night, _ = self._first_night("medium")
+        self.assertEqual(night, ("bite", "J"))
+        night, _ = self._first_night("medium", swap=dict(J="人狼", G="村人"))               # 霊能の名乗りが人狼(仲間)なら、もう一方の占いを噛む
+        self.assertEqual(night, ("bite", "B"))
+
+    def test_an_unknown_bite_is_refused_before_the_game_starts(self):
+        prep, roles = self._game()
+        with self.assertRaises(ValueError):
+            play(prep, roles, "grey", "???", FirstRng(), [], cat="off")
+
+    def test_the_either_guard_protects_the_believed_seer_or_the_medium_at_random(self):
+        hidden = dict(swap=dict(E="狩人", I="村人"))                                      # 狩人は E(吊られない灰)。名乗らず、護衛する
+        night, _ = self._first_night("medium", guard="either", hunter="gidra", **hidden)           # FirstRng: 先頭(真目の占い B)を護衛: 霊能 J は噛まれる
+        self.assertEqual(night, ("bite", "J"))
+        night, _ = self._first_night("medium", LastRng(), guard="either", hunter="gidra", **hidden)    # LastRng: 末尾(霊能 J)を護衛: GJ
+        self.assertEqual(night, ("guard", "J"))
+        night, _ = self._first_night("seer", guard="either", hunter="gidra", **hidden)             # 占いを噛む夜に、真目の占い B を護衛: GJ
+        self.assertEqual(night, ("guard", "B"))
+
+    def test_a_fixed_bite_changes_the_win_rate_compared_with_a_grey_bite(self):
+        board = make_board("11a", 2, [dict(player="A", target="C", color="白"), dict(player="B", target="D", color="白")])
+        rates = {b: win_rate(board, "roll_stop", b, n=4000, seed=2, guard="either", cat="off", hunter="gidra")["rate"] for b in BITES_ALL}
+        self.assertTrue(all(0.2 < r < 0.95 for r in rates.values()), rates)
+        self.assertGreater(len({round(r, 2) for r in rates.values()}), 2)               # 噛み方で、勝率が変わる
+
+
 class PosteriorTest(unittest.TestCase):
     """尤度吊り(依頼者: 可能性の中でいちばん人狼がありそうな所を吊るのが人狼ゲーム)。毎朝、公開された情報に合う世界を数え直す。"""
 
@@ -747,6 +839,31 @@ class PosteriorTest(unittest.TestCase):
                     play(prep, roles, policy, "claim", random.Random(i), guard="env", observer=observe, **kw)
                     self.assertTrue(seen and all(seen), (name, policy, i, seen))
             self.assertTrue({1, 2, 3} <= days, (name, days))                                # 昼2・昼3 の盤面も見ている
+
+    def test_hunters_who_came_out_and_guard_successes_keep_the_true_world_in_the_public_board(self):
+        """狩COした狩人(盤面では役職が決まる)と、GJの護衛先(人狼でない)を盤面に入れても、本当の世界が残る。"""
+        board = make_board("10a-kari", 2, [dict(player="A", target="C", color="白"), dict(player="B", target="D", color="白")])
+        prep = prepare(board)
+        rng = random.Random(17)
+        pinned_seen, gj_seen = 0, 0
+        for i in range(60):
+            roles, _ = sample_world(prep, rng)
+            seen: list = []
+
+            def observe(day, pb, worlds, wolf_p, target):
+                keys = pb.key_players()
+                seen.append(any(all(w.assign[p] == roles[p] for p in keys) for w in worlds))
+                nonlocal pinned_seen, gj_seen
+                pinned_seen += bool(pb.pinned)
+                gj_seen += bool(pb.gj)
+
+            for policy in (POSTERIOR, "roll_keep"):
+                seen.clear()
+                with mock.patch("zinro_learn.progress.HUNTER_GJ_CO", 1.0):
+                    play(prep, roles, policy, "medium" if i % 2 else "seer", random.Random(i), guard="either", cat="off", hunter="gidra", observer=observe)
+                self.assertTrue(seen and all(seen), (policy, i, seen))
+        self.assertGreater(pinned_seen, 10)                                              # 狩COした盤面を、よく通った
+        self.assertGreater(gj_seen, 5)                                                   # GJの護衛先が公開された盤面も通った
 
     def test_it_hangs_the_most_wolf_like_player_every_day(self):
         board = make_board("11a", 2, [dict(player="A", target="C", color="白"), dict(player="B", target="D", color="白")])
@@ -1049,7 +1166,7 @@ class ComparisonTest(unittest.TestCase):
         text = compare_text(board, "3-1 対抗黒", n=500, seed=1)
         for word in ("占いロラ", "黒スト", "ロラ完遂", "グレー", "灰を噛む", "名乗りを噛む", "構成の割合"):
             self.assertIn(word, text)
-        self.assertEqual(set(GUARDS), {None, "medium", "blacksayer", "env"})
+        self.assertEqual(set(GUARDS), {None, "medium", "blacksayer", "env", "either"})
         self.assertEqual(set(BITES), {"grey", "claim"})
 
 

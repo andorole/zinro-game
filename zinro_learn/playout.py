@@ -52,7 +52,7 @@ def wolf_line(board: Board, wolf_p: dict[str, float]) -> str:
     return "人狼の見込み(高い順): " + "、".join(f"{p} {wolf_p.get(p, 0.0) * 100:.0f}%" for p in ranked)
 
 
-def playout_text(board: Board, policy: str = POSTERIOR, bite: str = "grey", seed: int = 1, roles: dict[str, str] | None = None, **play_kwargs) -> str:
+def playout_text(board: Board, policy: str = POSTERIOR, bite: str = "claim", seed: int = 1, roles: dict[str, str] | None = None, **play_kwargs) -> str:
     """盤面 board から、役職を無作為に配った1試合(roles を渡せば、その配役)を動かして、朝ごとの盤面と、吊りの流れを並べる。"""
     prep = prepare(board)
     if roles is None:

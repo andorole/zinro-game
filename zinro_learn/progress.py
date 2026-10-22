@@ -15,6 +15,9 @@
 狼の噛み方(毎晩1人):
 - 灰: 灰(名乗っていない人)から無作為に噛む。11A のメモの基本の前提。
 - 名乗り: 狼でない占い・霊能の名乗りを先に噛む(狼は、本物と狂人を見分けられないので、区別しない)。いなければ灰。
+- 占い・霊能: 依頼者の話「狼が噛むのは、占いか霊能。いまの環境では、どちらかで固定されている」。占いを噛む(seer)は、狼でない占いの名乗りを無作為に、
+  霊能を噛む(medium)は、霊能の名乗りを噛む。噛む先が死んでいれば、もう一方、なければ灰。どちらで固定かは、聞いていないので、両方を試算する。
+- どの噛み方でも、名乗った狩人は、HUNTER_BITE の割合で、先に噛みに来る(依頼者: もちろん噛みに行く)。
 
 狩人の護衛(毎晩1人。狼がその人を噛もうとしたら、噛みは失敗する。狩人が生きているあいだだけ):
 - なし: 護衛を入れない。
@@ -22,6 +25,7 @@
 - 黒出し: 結果で黒を出した占いの名乗りを護衛しつづける(黒出し占い護衛固定)。
 - 環境: 初手で黒が出ていれば、黒を出した占いを護衛する。なければ、真目の占いか霊能(依頼者。霊能を先にする。真目の占いは、狼の見込みが
   いちばん低い名乗り)。守る相手が死んでいたら、次の候補を守る。
+- どちらか(either): 真目の占いか霊能のどちらかを、毎晩無作為に護衛する(依頼者: 護衛するのもどちらかでいい)。
 
 占いの夜の結果(2日目以降。seer_results が真のとき):
 - 占いの名乗りで生きている人は、毎晩1人を占い、翌朝、生きていれば結果を出す(夜に噛まれた占いは、結果を出せない)。相手は、灰から無作為。
@@ -67,9 +71,13 @@
 - gidra: 吊りを指定された本物の狩人は、狩COをして吊りを避ける。その割合は、10A狩・11A では 1(依頼者: 当然狩COする。ギドラはない。盤面の hunter_co)。
   12A猫では GIDRA_HUNTER(依頼者: 本指定のタイミングで、狩もギドラCOをする。ただし「狩人も指定されたらギドラの場合あり」で、いつもではない。割合は仮)。
   名乗らなかった狩人は、そのまま吊られる。
+  そのほかに、狩人は、10A狩・11A では昼1に指定される前に、グレーを狭めるために出ることがあり(HUNTER_PRE_CO。依頼者: 出たりする)、護衛が成功した(GJ)あとの昼にも露出することがある
+  (HUNTER_GJ_CO。依頼者: GJがあった時も露出する事ある)。GJで露出した狩人は護衛先を明かす: 護衛先は、狼が噛みに来た人なので人狼でなく、村は無作為の吊りから外す。
+  狩COした狩人(偽の狩人COがない gidra のとき)は、盤面では狩人に決まった人として数える。
   村は、名乗った人を除いて、吊り先を選び直す。名乗った狩人は、ほかに候補があるあいだ吊られない(狩COを偽と割り切って吊る「狩貫通」は、
   初手にはしない、と聞いた。後の日の狩貫通は、いまは入れていない)。名乗っている狩人(人狼でない)は、狼が HUNTER_BITE の割合で噛みに来る(依頼者: もちろん噛みに行く)。
-  2人の狩人が名乗ったら、先に出た方を吊る(猫吊りと同じ置き方)。
+  2人の狩人が名乗ったら、偽目の方を吊る(依頼者: これも大体は発言から。HUNTER_PAIR_READ の割合で偽を吊り、残りは本物を吊ってしまう)。
+  即吊りでなく、一旦放置することもある(HUNTER_PAIR_WAIT の割合で、その日は2人とも吊らない)。
 - fake: gidra に加えて、黒なしで昼1に指定された人狼・狂人が、FAKE_HUNTER_FIRST の割合で、偽の狩人COで吊りを避ける(依頼者: 初手の回避は
   狩が良いことがある。狩貫通は初手にはしない)。本物の狩人は、HUNTER_COUNTER の割合で、対抗として出る(依頼者: 本物の狩人も対抗COする)。対抗が出れば、指定された(先に出た)
   偽を吊る。出なければ、偽の狩人は吊られずに残り、村は吊り先を選び直す。人外が偽の狩人を名乗るのは、昼1の最初の指定だけ(後の日は入れていない)。
@@ -115,6 +123,9 @@ GIDRA_HUNTER = 0.7               # 仮。12A猫で、指定された狩人が名
 FAKE_HUNTER_FIRST = 0.5          # 仮。fake で、黒なしで昼1に指定された人狼・狂人が、偽の狩人COで吊りを避ける割合(依頼者: 初手の回避は狩が良いことがある。狩貫通は初手にはしない。かなり悩ましい)
 HUNTER_COUNTER = 1.0             # 依頼者の話(本物の狩人も対抗COする)。偽の狩人が出たとき、本物の狩人が対抗として出る割合
 HUNTER_BITE = 1.0                # 依頼者の話(もちろん噛みに行く)。名乗っている狩人(人狼でない)を、狼が噛みに来る割合
+HUNTER_GJ_CO = 0.3               # 仮。護衛が成功した(GJ)あとの昼に、本物の狩人が狩COして露出する割合(依頼者: GJがあった時も露出する事ある)
+HUNTER_PAIR_WAIT = 0.3           # 仮。狩人が2人名乗ったとき、その日は吊らずに放置する割合(依頼者: 即吊りでなく、一旦放置する進行を取る場合もある)
+HUNTER_PAIR_READ = 0.7           # 仮。狩人が2人名乗ったとき、偽の方を吊る割合(依頼者: 偽目を吊る。これも大体は発言から。残りは、本物を吊ってしまう)
 HUNTERS = ("off", "gidra", "fake")
 HUNTER_NAME = {"off": "狩人は名乗らない", "gidra": "狩人は指定されたら名乗る(12A猫は場合あり)", "fake": "狩人は指定されたら名乗り、人外も昼1の指定で偽の狩人を名乗る"}
 CATS = ("off", "hidden", "open", "counter", "gidra")
@@ -124,10 +135,11 @@ POLICIES = ("grey", "roll_keep", "roll_stop", "roll")
 POSTERIOR = "posterior"                                  # 尤度吊り: 毎日、公開された情報に合う世界を数え直して、人狼の見込みがいちばん高い人を吊る(盤面だけの読み)
 ALL_POLICIES = (*POLICIES, POSTERIOR)
 POLICY_NAME = {"grey": "グレー", "roll_keep": "占いロラ", "roll_stop": "黒スト", "roll": "ロラ完遂", POSTERIOR: "尤度吊り"}
-BITES = ("grey", "claim")
-BITE_NAME = {"grey": "灰を噛む", "claim": "名乗りを噛む"}
-GUARDS = (None, "medium", "blacksayer", "env")
-GUARD_NAME = {None: "護衛なし", "medium": "霊護衛固定", "blacksayer": "黒出し占い護衛固定", "env": "環境の護衛"}
+BITES = ("grey", "claim")                                # 表の標準の噛み方(灰を噛む=11A のメモの前提、名乗りを噛む=占い・霊能の名乗りを無作為に噛む)
+BITES_ALL = (*BITES, "seer", "medium")                   # 依頼者: 狼が噛むのは、占いか霊能。いまの環境では、どちらかで固定されている
+BITE_NAME = {"grey": "灰を噛む", "claim": "名乗りを噛む", "seer": "占いを噛む", "medium": "霊能を噛む"}
+GUARDS = (None, "medium", "blacksayer", "env", "either")
+GUARD_NAME = {None: "護衛なし", "medium": "霊護衛固定", "blacksayer": "黒出し占い護衛固定", "env": "環境の護衛", "either": "占いか霊能のどちらかを護衛(無作為)"}
 
 
 @dataclass
@@ -224,7 +236,9 @@ def play(prep: Prepared, roles: dict[str, str], policy: str, bite: str, rng: ran
         black_sayer = None                                # 白ランオン: 初日の黒を出した占いは偽と分かるので、環境の護衛は守らない
     if guard not in GUARDS:
         raise ValueError(f"知らない護衛: {guard}")
-    guarded = {None: None, "medium": prep.medium, "blacksayer": black_sayer, "env": None}[guard]
+    guarded = {None: None, "medium": prep.medium, "blacksayer": black_sayer, "env": None, "either": None}[guard]
+    if bite not in BITES_ALL:
+        raise ValueError(f"知らない噛み方: {bite}")
     claimants = set(prep.seers) | ({prep.medium} if prep.medium else set())
     alive = set(board.players)
     for p in board.dead:                                  # 盤面にすでにある死者
@@ -257,6 +271,9 @@ def play(prep: Prepared, roles: dict[str, str], policy: str, bite: str, rng: ran
     unreported: list[str] = []
     divined: dict[str, set[str]] = {s: {r["target"] for r in board.results if r["kind"] == "占い" and r["player"] == s} for s in prep.seers}      # 初日の結果で占った相手は、占い直さない
     night = 0
+    gj_last = False                                       # 前の夜に、護衛が成功した(GJ)
+    gj_target = None                                      # そのときの護衛先
+    gj_public: list[str] = []                             # 狩人が露出して、GJの護衛先が公開された人
     exec_order: list[str] = []                            # 吊られた人(公開)
     bitten_order: list[str] = []                          # 夜の襲撃で死んだ人(公開)
     other_dead: list[str] = []                            # 道連れで死んだ人(公開)
@@ -280,7 +297,8 @@ def play(prep: Prepared, roles: dict[str, str], policy: str, bite: str, rng: ran
         return Board(players=list(board.players), roles=dict(board.roles), claims=list(board.claims), results=results,
                      executed=[*board.executed, *exec_order], bitten=[*board.bitten, *bitten_order], other_dead=[*board.other_dead, *other_dead],
                      wolf_co=list(board.wolf_co), ongoing=True, rco=board.rco, random_white=board.random_white,
-                     fake_black_first=board.fake_black_first, fake_black_later=FAKE_BLACK_LATER, hunter_co=board.hunter_co, dummy=board.dummy)
+                     fake_black_first=board.fake_black_first, fake_black_later=FAKE_BLACK_LATER, hunter_co=board.hunter_co,
+                     pinned=({real_hunter: "狩人"} if hunter == "gidra" and real_hunter in hunter_out else {}), gj=list(gj_public), dummy=board.dummy)
 
     def look() -> tuple[Board, list[World], dict[str, float]]:
         """公開された盤面と、合う世界と、生きている人ごとの人狼の見込み(重みの割合)。合う世界がなければ、見込みは空。"""
@@ -377,6 +395,20 @@ def play(prep: Prepared, roles: dict[str, str], policy: str, bite: str, rng: ran
             elif real_cat in alive_blacks and not cat_hides:
                 reveal("黒")                              # 黒を刺された猫は、先黒吊りなら必ず出る(依頼者)。占い吊り優先のときは、伏せることがある
         pending, known_fake, exposed = cats()
+        if hunter != "off" and real_hunter in alive and real_hunter not in hunter_out:
+            why = None
+            if night == 0 and rng.random() < board.hunter_pre_co:
+                why = "グレー狭め"                                  # 10A狩・11A: 指定される前の昼1に、グレーを狭めるために出る(依頼者)
+            elif gj_last and rng.random() < HUNTER_GJ_CO:
+                why = "GJ"                                         # 護衛が成功したあとの昼に、露出する(依頼者)
+            if why:
+                hunter_out.append(real_hunter)
+                if trace is not None:
+                    trace.append(("hunter", real_hunter, why))
+                if why == "GJ" and gj_target is not None:
+                    gj_public.append(gj_target)                       # 露出した狩人が、護衛先を明かす: 狼が噛みに来た人なので、人狼でない(村は、無作為の吊りから外す)
+                    safe.add(gj_target)
+        gj_last = False
         looked = look() if (policy == POSTERIOR or observer is not None) else None
         wolf_p = looked[2] if looked else {}
         if policy == POSTERIOR and wolf_p:
@@ -430,6 +462,16 @@ def play(prep: Prepared, roles: dict[str, str], policy: str, bite: str, rng: ran
             rest = sorted(alive_seers) or sorted(alive)                         # 候補が尽きたとき: 占い、霊能、残る誰か
             return rng.choice(rest)
 
+        def pair_target(a: str, b: str) -> str | None:
+            """狩人が2人名乗っている: 偽目の方を吊る(依頼者: 大体は発言から)。即吊りでなく、一旦放置することもある(None は、今日は吊らない)。"""
+            if rng.random() < HUNTER_PAIR_WAIT:
+                return None
+            real_one, fake_one = (a, b) if roles[a] == "狩人" else (b, a)
+            return fake_one if rng.random() < HUNTER_PAIR_READ else real_one
+
+        hunters_up = [p for p in hunter_out if p in alive]
+        pair_pick = pair_target(hunters_up[0], hunters_up[1]) if len(hunters_up) >= 2 else None
+
         target = None
         from_policy = False
         fakes_alive = [p for p in order if p in refuted and p in alive]
@@ -455,6 +497,8 @@ def play(prep: Prepared, roles: dict[str, str], policy: str, bite: str, rng: ran
             target = known_fake                           # 本物の猫が先に死んで、偽と分かった猫
         elif pending:
             target = fake_cat if fake_first else real_cat # 猫が2人名乗っている: 黒がなければ、先に出た方を吊る(吊った猫の道連れで、本物か分かる)
+        elif pair_pick is not None:
+            target = pair_pick                            # 狩人が2人名乗っている: 偽目の方を吊る
         else:
             target, from_seer = by_policy(grey_pool())
             if policy == POSTERIOR:
@@ -487,9 +531,11 @@ def play(prep: Prepared, roles: dict[str, str], policy: str, bite: str, rng: ran
                 hunter_out.append(target)
                 if trace is not None:
                     trace.append(("hunter", target, "指定"))
-                if earlier:
-                    target = earlier[0]                               # 狩人が2人名乗った(偽が先に出ていた): 先に出た方を吊る
-                    break
+                if earlier:                                           # 狩人が2人名乗った(偽が先に出ていた): 偽目の方を吊る。一旦放置もある
+                    picked = pair_target(earlier[0], target)
+                    if picked is not None:
+                        target = picked
+                        break
                 spared = True
             elif (hunter == "fake" and night == 0 and roles[target] in ("人狼", "狂人") and target not in claimants
                   and not hunter_out and rng.random() < FAKE_HUNTER_FIRST):
@@ -498,10 +544,13 @@ def play(prep: Prepared, roles: dict[str, str], policy: str, bite: str, rng: ran
                 if trace is not None:
                     trace.append(("fakehunter", target, "指定"))
                 if real_hunter in alive and rng.random() < HUNTER_COUNTER:
-                    hunter_out.append(real_hunter)                    # 本物の狩人が対抗として出る: 指定された(先に出た)偽を吊る
+                    hunter_out.append(real_hunter)                    # 本物の狩人が対抗として出る: 偽目の方を吊る。一旦放置もある
                     if trace is not None:
                         trace.append(("hunter", real_hunter, "対抗"))
-                    break
+                    picked = pair_target(target, real_hunter)
+                    if picked is not None:
+                        target = picked
+                        break
                 spared = True
             if not spared:
                 break
@@ -524,8 +573,11 @@ def play(prep: Prepared, roles: dict[str, str], policy: str, bite: str, rng: ran
             pool = [p for p in open_nonwolf if p in claimants] or [p for p in open_nonwolf if p not in claimants] or open_nonwolf
         elif bite == "grey":
             pool = [p for p in open_nonwolf if p not in claimants] or open_nonwolf
-        else:
-            raise ValueError(f"知らない噛み方: {bite}")
+        else:                                                      # 占いを噛む・霊能を噛む(依頼者: 噛むのは占いか霊能。いまの環境では、どちらかで固定)
+            seer_pool = [p for p in open_nonwolf if p in prep.seers]
+            medium_pool = [p for p in open_nonwolf if p == prep.medium]
+            first, second = (seer_pool, medium_pool) if bite == "seer" else (medium_pool, seer_pool)
+            pool = first or second or [p for p in open_nonwolf if p not in claimants] or open_nonwolf         # 噛む先がいなければ、もう一方、灰
         wolves_now = sum(1 for p in alive if roles[p] == "人狼")
         if exposed & set(nonwolf) and wolves_now == 2 and len(alive) == 6 and rng.random() < OPEN_CAT_BITE:
             pool = sorted(exposed & set(nonwolf))                          # 人狼2人・夜に6人: 猫又を噛めば、一気に最終日に行ける
@@ -536,7 +588,12 @@ def play(prep: Prepared, roles: dict[str, str], policy: str, bite: str, rng: ran
         victim = rng.choice(pool)
         if guard == "env":                                # 環境の護衛: 黒を出した占い、なければ霊能、なければ真目の占い(生きている人)
             guarded = next((p for p in (black_sayer, prep.medium, kept) if p is not None and p in alive), None)
+        elif guard == "either":                            # 占いか霊能のどちらか(依頼者: 護衛するのもどちらかでいい)。占いは、真目の占い
+            options = [p for p in (kept, prep.medium) if p is not None and p in alive]
+            guarded = rng.choice(options) if options else None
         if guarded is not None and victim == guarded and any(roles[p] == "狩人" for p in alive):
+            gj_last = True
+            gj_target = victim
             if trace is not None:
                 trace.append(("guard", victim, ""))               # 護衛が成功して、だれも死なない
         else:
@@ -658,13 +715,13 @@ def hit_rates(board: Board) -> dict:
 
 
 def compare_text(board: Board, title: str, n: int = 20000, seed: int = 1, guard: str | None = None, seer_results: bool = True,
-                 cat: str = "hidden", rpp: bool = True, black_first: bool = True, reads: bool = True, hunter: str = "off") -> str:
-    table = compare(board, n, seed, guard=guard, seer_results=seer_results, cat=cat, rpp=rpp, black_first=black_first, reads=reads, hunter=hunter)
+                 cat: str = "hidden", rpp: bool = True, black_first: bool = True, reads: bool = True, hunter: str = "off", bites=BITES) -> str:
+    table = compare(board, n, seed, bites=bites, guard=guard, seer_results=seer_results, cat=cat, rpp=rpp, black_first=black_first, reads=reads, hunter=hunter)
     first = next(iter(table.values()))
     labels = list(first["by_label"])                      # 構成の割合の大きい順(どの進行でも、世界の引きは同じ)
     lines = [f"{title}(試算 {n} 回。誤差は ±{max(r['stderr'] for r in table.values()) * 100:.1f}% くらい)"]
     lines.append("構成の割合: " + "、".join(f"{k} {first['by_label'][k]['share'] * 100:.0f}%" for k in labels))
-    for bite in BITES:
+    for bite in bites:
         parts = []
         for policy in POLICIES:
             r = table[(bite, policy)]

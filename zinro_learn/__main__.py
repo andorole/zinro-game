@@ -6,8 +6,8 @@
   python -m zinro_learn timeline logs/normalized/<id>.json [...]   # 役職、夜の行動と通知、死亡、人狼の夜チャットを、夜と昼の順に並べる
   python -m zinro_learn board knowledge/boards/<id>.json [--stage N]   # 盤面整理: 公開された情報に合う役職の割り当て(真・狼・狂)、確定した黒白、縄
   python -m zinro_learn board --patterns [--setup 12a-neko|11a|10a-kari]   # 名乗りの数(占い-霊)ごとの、名乗りの種類の組み合わせと、定番／ありうる／まれ
-  python -m zinro_learn progress [--setup 12a-neko|11a|10a-kari] [--random-white on|off] [--missing on|off] --seers 3 [--result A:B:黒] [--guard none|medium|blacksayer|env] [--cat off|hidden|open|counter|gidra] [--hunter off|gidra|fake] [--no-seer-results] [--no-rpp] [--seers-first] [--no-reads]   # 進行の比較(占いロラ・グレランなど)の、村の勝率の試算
-  python -m zinro_learn playout [--setup 12a-neko|11a|10a-kari] --seers 2 [--result A:C:白 ...] [--policy posterior] [--bite grey|claim] [--seed 1]   # 1試合を動かして、昼1・昼2・昼3・昼4…の盤面を出す
+  python -m zinro_learn progress [--setup 12a-neko|11a|10a-kari] [--random-white on|off] [--missing on|off] --seers 3 [--result A:B:黒] [--guard none|medium|blacksayer|env|either] [--cat off|hidden|open|counter|gidra] [--hunter off|gidra|fake] [--bites grey claim seer medium] [--no-seer-results] [--no-rpp] [--seers-first] [--no-reads]   # 進行の比較(占いロラ・グレランなど)の、村の勝率の試算
+  python -m zinro_learn playout [--setup 12a-neko|11a|10a-kari] --seers 2 [--result A:C:白 ...] [--policy posterior] [--bite claim|grey|seer|medium] [--seed 1]   # 1試合を動かして、昼1・昼2・昼3・昼4…の盤面を出す
   python -m zinro_learn sync     # 発言例から、ガイドの「発言の型」の表を作り直す
   python -m zinro_learn check    # knowledge/ の整合性を調べる(問題があれば終了コード 1)
   python -m zinro_learn structure  # 連投と返信の型(1発言に1返信ではない構造)を数える
@@ -23,7 +23,7 @@ from .board import DEFAULT_SETUP, SETUPS, load_record, make_board, patterns_text
 from .check import check, load_examples, load_games, sync_table
 from .parse import anonymize, build_mapping, parse_game
 from .playout import playout_text
-from .progress import ALL_POLICIES, BITE_NAME, CAT_NAME, CATS, GUARD_NAME, HUNTER_NAME, HUNTERS, POLICY_NAME, compare_policies, compare_text, hit_rates
+from .progress import ALL_POLICIES, BITE_NAME, BITES, BITES_ALL, CAT_NAME, CATS, GUARD_NAME, HUNTER_NAME, HUNTERS, POLICY_NAME, compare_policies, compare_text, hit_rates
 from .roles import format_timeline
 from .structure import format_structure
 
@@ -137,10 +137,10 @@ def progress(args) -> None:
              + ("・村の読みなし" if args.no_reads else "・村は霊能の報告で占いを読む") + (f"・{HUNTER_NAME[args.hunter]}" if args.hunter != "off" else ""))
     print(f"昼1の1本目の吊りが人狼に当たる見込み(厳密): 占いの名乗り {seers} / 灰1人 {rates['灰'] * 100:.1f}%({rates['灰の人数']}人)")
     print(compare_text(board, title, args.n, args.seed, guard=guard, seer_results=not args.no_seer_results, cat=cat, rpp=not args.no_rpp,
-                       black_first=not args.seers_first, reads=not args.no_reads, hunter=args.hunter))
+                       black_first=not args.seers_first, reads=not args.no_reads, hunter=args.hunter, bites=tuple(args.bites)))
     if args.posterior:
         print(f"尤度吊り(毎朝、公開された情報に合う世界を数え直して、人狼の見込みがいちばん高い人を吊る)との比較(同じ世界の引きで {args.posterior_n} 回):")
-        for bite in ("grey", "claim"):
+        for bite in args.bites:
             r = compare_policies(board, ALL_POLICIES, bite, args.posterior_n, args.seed, args.workers, **play_options(args))
             print(f"  {BITE_NAME[bite]}: " + " | ".join(f"{POLICY_NAME[p]} {r[p] * 100:.1f}%" for p in ALL_POLICIES))
 
@@ -176,11 +176,11 @@ def add_board_options(p) -> None:
     p.add_argument("--setup", choices=list(SETUPS), default=DEFAULT_SETUP,
                    help="配役: 12a-neko=12A猫(既定)、11a=11A、10a-kari=10A狩(11A・10A狩は白ランオン。10A狩の人数は推測)")
     p.add_argument("--random-white", choices=["on", "off"], default=None, help="白ランオン(本物の占いの初日の結果は無作為な白)。省略すると、配役の約束事のとおり")
-    p.add_argument("--missing", choices=["on", "off"], default=None, help="役欠け(ダミーの役職が人狼以外のどれかで、占い・霊能・狩人なども欠けうる)。省略すると、配役の約束事のとおり(11A・10A狩はあり、12A猫はなし)")
+    p.add_argument("--missing", choices=["on", "off"], default=None, help="役欠け(ダミーの役職が人狼以外のどれかで、占い・霊能・狩人なども欠けうる)。省略すると、配役の約束事のとおり(12A猫・11A・10A狩とも、あり)")
     p.add_argument("--seers", type=int, default=3, help="占いの名乗りの人数(A から順に)")
     p.add_argument("--result", action="append", default=[], help="占いの初手の結果。例: A:B:黒(A が B に黒)。複数指定可")
-    p.add_argument("--guard", choices=["none", "medium", "blacksayer", "env"], default="env",
-                   help="狩人の護衛: none=護衛なし、medium=霊護衛固定、blacksayer=黒出し占い護衛固定、env=環境の護衛(黒を出した占い、なければ霊能。既定)")
+    p.add_argument("--guard", choices=["none", "medium", "blacksayer", "env", "either"], default="env",
+                   help="狩人の護衛: none=護衛なし、medium=霊護衛固定、blacksayer=黒出し占い護衛固定、env=環境の護衛(黒を出した占い、なければ霊能。既定)、either=占い(真目)か霊能のどちらかを無作為に護衛(依頼者: 護衛するのもどちらかでいい)")
     p.add_argument("--cat", choices=CATS, default=None,
                    help="猫又の扱い: off=力を数えない、hidden=隠れている、open=名乗っていて吊らず噛まない、counter=名乗り、対抗猫が出る(猫吊り)、"
                         "gidra=隠れていて、黒を刺されたら・指定されたら名乗る(12A猫の既定。猫又のいない配役は off)")
@@ -233,13 +233,14 @@ def main(argv=None) -> None:
     p.add_argument("--seed", type=int, default=1)
     p.add_argument("--posterior", action="store_true", help="尤度吊り(毎朝、人狼の見込みがいちばん高い人を吊る)も比べる(遅い)")
     p.add_argument("--posterior-n", type=int, default=2000, help="尤度吊りを比べるときの回数")
+    p.add_argument("--bites", nargs="+", choices=list(BITES_ALL), default=list(BITES), help="比べる狼の噛み方(既定は grey claim。seer=占いを噛む、medium=霊能を噛む)")
     p.add_argument("--workers", type=int, default=4, help="尤度吊りを比べるときの並列数")
     p.set_defaults(func=progress)
 
     p = sub.add_parser("playout", help="1試合を動かして、昼1・昼2・昼3・昼4…の盤面(人狼の見込みと吊り先)を出す")
     add_board_options(p)
     p.add_argument("--policy", choices=list(ALL_POLICIES), default="posterior", help="進行(既定は尤度吊り)")
-    p.add_argument("--bite", choices=["grey", "claim"], default="grey", help="狼の噛み方: grey=灰を噛む、claim=名乗りを噛む")
+    p.add_argument("--bite", choices=list(BITES_ALL), default="claim", help="狼の噛み方: claim=名乗りを噛む(既定)、grey=灰を噛む、seer=占いを噛む、medium=霊能を噛む(依頼者: 噛むのは占いか霊能)")
     p.add_argument("--seed", type=int, default=1, help="役職の配り方の乱数")
     p.set_defaults(func=playout)
 

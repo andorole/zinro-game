@@ -51,6 +51,9 @@ FAKE_BLACK_FIRST_RANDOM_WHITE = 0.05
 # 偽の占い(人狼・狂人)が、二手目以降の夜に「人狼でない人」へ黒を出す重み(白を出す場合を 1)。依頼者の話「偽の二手目は、だいたい白」に合わせて、
 # 初手(FAKE_BLACK_FIRST)より小さい(仮)。進行の試算(progress.py)で偽の占いが夜に黒を出す重みと、同じ数字にする。
 FAKE_BLACK_LATER = 0.05
+# 10A狩・11A で、狩人が、吊りを指定される前の昼1に、グレーを狭めるために狩COする割合(依頼者: 10A狩や11A だと、グレーを狭める為に出たりする)。
+# 「出たりする」なので、たまに、の意味で仮に 0.3 と置いた(確認したい)。
+HUNTER_PRE_CO = 0.3
 TYPE_ORDER = "真狼狂"                                    # 名乗りの種類: 本物・人狼・狂人
 
 
@@ -65,14 +68,15 @@ class Setup:
     fake_black_first: float                              # 偽の占いが、初手に人狼でない人へ黒を出す重み
     missing: bool = False                                # 役欠けあり(ダミーの役職は、人狼以外のどれかで、欠けうる)
     hunter_co: float | None = None                       # 吊りを指定された狩人が、狩COして吊りを避ける割合。None なら progress.GIDRA_HUNTER(12A猫の「場合あり」)
+    hunter_pre_co: float = 0.0                           # 指定される前の昼1に、グレーを狭めるために、狩人が狩COする割合(10A狩・11A)
 
 
-# 12A猫は、役欠けなしのまま(log17 の部屋の「役欠け:あり」の意味は、確認したい)。10A狩・11A は、役欠けあり(依頼者: 人狼以外の全てが欠けうる)。
+# 役欠けあり(依頼者: 初日犠牲者は、人狼以外はなる可能性がある)。12A猫も、10A狩・11A も同じ(log17 の部屋の「役欠け:あり」)。
 # 狩人: 10A狩・11A は、指定された狩人は当然狩COする(依頼者: ギドラはない。割合 1)。12A猫は、狩人も指定されたらギドラの「場合あり」(割合は仮)。
 SETUPS = {
-    "12a-neko": Setup("12a-neko", "12A猫", ROLES_12A_NEKO, False, FAKE_BLACK_FIRST, False),
-    "11a": Setup("11a", "11A", ROLES_11A, True, FAKE_BLACK_FIRST_RANDOM_WHITE, True, 1.0),
-    "10a-kari": Setup("10a-kari", "10A狩", ROLES_10A_KARI, True, FAKE_BLACK_FIRST_RANDOM_WHITE, True, 1.0),
+    "12a-neko": Setup("12a-neko", "12A猫", ROLES_12A_NEKO, False, FAKE_BLACK_FIRST, True),
+    "11a": Setup("11a", "11A", ROLES_11A, True, FAKE_BLACK_FIRST_RANDOM_WHITE, True, 1.0, HUNTER_PRE_CO),
+    "10a-kari": Setup("10a-kari", "10A狩", ROLES_10A_KARI, True, FAKE_BLACK_FIRST_RANDOM_WHITE, True, 1.0, HUNTER_PRE_CO),
 }
 DEFAULT_SETUP = "12a-neko"
 
@@ -95,6 +99,9 @@ class Board:
     fake_black_first: float = FAKE_BLACK_FIRST                           # 偽の占いが、初手に人狼でない人へ黒を出す重み(白を出す場合を 1)
     fake_black_later: float = FAKE_BLACK_LATER                           # 偽の占いが、二手目以降の夜に人狼でない人へ黒を出す重み(白を出す場合を 1)
     hunter_co: float | None = None                                       # 吊りを指定された狩人が、狩COして吊りを避ける割合(None なら progress.GIDRA_HUNTER)
+    hunter_pre_co: float = 0.0                                           # 指定される前の昼1に、グレーを狭めるために、狩人が狩COする割合
+    pinned: dict[str, str] = field(default_factory=dict)                 # 役職が決まっている人(狩COした狩人。偽の狩人COがない前提のとき)。その役職に決まる
+    gj: list[str] = field(default_factory=list)                          # 護衛が成功した(GJ)ときの護衛先として公開された人(狼が噛みに来たので、人狼でない)
     dummy: str | None = None                                             # 役欠けあり: 初日犠牲者(最初から死んでいる)。役職は人狼以外のどれかで、占い・霊能・狩人なども欠けうる
 
     @property
@@ -111,7 +118,7 @@ class Board:
 
     def key_players(self) -> list[str]:
         """役職を個別に決める人。ほかの人(灰)は、まとめて数える。"""
-        keys = {p for p, _ in self.claims} | set(self.dead) | set(self.wolf_co)
+        keys = {p for p, _ in self.claims} | set(self.dead) | set(self.wolf_co) | set(self.pinned) | set(self.gj)
         for r in self.results:
             keys |= {r["player"], r["target"]}
         return [p for p in self.players if p in keys]
@@ -153,20 +160,23 @@ def make_board(setup: str = DEFAULT_SETUP, seers: int = 2, results=(), random_wh
     if not 0 <= seers <= n - 1:
         raise ValueError("占いの名乗りの人数が多すぎる")
     board = Board(players=players + ([DUMMY] if missing else []), roles=roles, rco=rco, fake_black_first=cfg.fake_black_first,
-                  random_white=cfg.random_white if random_white is None else random_white, hunter_co=cfg.hunter_co, dummy=DUMMY if missing else None)
+                  random_white=cfg.random_white if random_white is None else random_white, hunter_co=cfg.hunter_co, hunter_pre_co=cfg.hunter_pre_co,
+                  dummy=DUMMY if missing else None)
     board.claims = [(p, "占い師") for p in players[:seers]] + [(players[-1], "霊能者")]
     board.results = [{"kind": "占い", "first": True, **r} for r in results]
     return board
 
 
 def domain(board: Board, player: str) -> set[str]:
-    """その人がなりうる役職。名乗った人は、その役職か、偽(人狼・狂人)。襲撃で死んだ人は人狼でない。狼COは人狼。"""
+    """その人がなりうる役職。名乗った人は、その役職か、偽(人狼・狂人)。襲撃で死んだ人とGJの護衛先は人狼でない。狼COは人狼。狩COした人(pinned)は、その役職。"""
     allowed = {r for r, n in board.roles.items() if n > 0}
     for p, role in board.claims:
         if p == player:
             allowed &= {role, "人狼", "狂人"}
-    if player in board.bitten or player == board.dummy:
+    if player in board.bitten or player in board.gj or player == board.dummy:
         allowed.discard("人狼")
+    if player in board.pinned:
+        allowed &= {board.pinned[player]}
     if player in board.wolf_co:
         allowed &= {"人狼"}
     return allowed
@@ -503,7 +513,8 @@ def board_at(record: dict, stage: int) -> Board:
     board = Board(players=list(record["players"]) + ([DUMMY] if missing else []), roles=roles,
                   ongoing=not record["stages"][stage].get("ended", False), rco=record.get("rco", True),
                   random_white=record.get("random_white", setup.random_white), fake_black_first=record.get("fake_black_first", setup.fake_black_first),
-                  fake_black_later=record.get("fake_black_later", FAKE_BLACK_LATER), hunter_co=record.get("hunter_co", setup.hunter_co), dummy=DUMMY if missing else None)
+                  fake_black_later=record.get("fake_black_later", FAKE_BLACK_LATER), hunter_co=record.get("hunter_co", setup.hunter_co),
+                  hunter_pre_co=record.get("hunter_pre_co", setup.hunter_pre_co), dummy=DUMMY if missing else None)
     for e in record["events"]:
         if e["stage"] > stage:
             continue
@@ -549,7 +560,7 @@ def board_report(board: Board, name: str, truth: dict | None = None) -> str:
     worlds = enumerate_worlds(board)
     lines = [f"== {name}(生存 {len(board.alive)} 人: {' '.join(board.alive)}) =="]
     lines.append(f"名乗り: {claim_summary(board)}")
-    if board.executed or board.bitten or board.other_dead or board.wolf_co:
+    if board.executed or board.bitten or board.other_dead or board.wolf_co or board.pinned or board.gj:
         facts = []
         if board.executed:
             facts.append("処刑 " + "・".join(board.executed))
@@ -557,6 +568,10 @@ def board_report(board: Board, name: str, truth: dict | None = None) -> str:
             facts.append("襲撃で死亡 " + "・".join(board.bitten))
         if board.other_dead:
             facts.append("そのほかの死 " + "・".join(board.other_dead))
+        if board.pinned:
+            facts.append("狩CO " + "・".join(sorted(board.pinned)))
+        if board.gj:
+            facts.append("GJの護衛先 " + "・".join(board.gj))
         if board.wolf_co:
             facts.append("狼CO " + "・".join(board.wolf_co))
         lines.append("公開された事実: " + "、".join(facts))

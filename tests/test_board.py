@@ -8,6 +8,7 @@ from zinro_learn.board import (
     DUMMY, FAKE_BLACK_FIRST, FAKE_BLACK_FIRST_RANDOM_WHITE, FAKE_BLACK_LATER, REASON_MISSING, ROLES_10A_KARI, ROLES_12A_NEKO, SETUPS, Board, board_at, claim_patterns, confirmed,
     enumerate_worlds, load_record, make_board, narrowing_wins, next_hang_line, marginals, pattern_label, patterns_text, result_factor, rope_slack, setup_roles,
     stage_report, type_shares, world_judgement,
+    board_report,
 )
 from zinro_learn.board import ROLES_11A as ROLES_11A_PKG
 
@@ -394,6 +395,46 @@ class RopeTest(unittest.TestCase):
         self.assertTrue(next_hang_line(7, 1)["win"])
 
 
+class KnownFactsTest(unittest.TestCase):
+    """狩COした狩人(役職が決まっている人)と、GJの護衛先(狼が噛みに来たので人狼でない人)を、盤面に入れる。"""
+
+    def board(self) -> Board:
+        return make_board("11a", 2, [dict(player="A", target="C", color="白"), dict(player="B", target="D", color="白")])
+
+    def test_a_player_who_came_out_as_the_hunter_is_pinned_and_narrows_the_grey(self):
+        board = self.board()
+        before = marginals(board, enumerate_worlds(board))
+        board.pinned = {"I": "狩人"}
+        worlds = enumerate_worlds(board)
+        self.assertIn("I", board.key_players())
+        self.assertTrue(worlds and all(w.assign["I"] == "狩人" for w in worlds))
+        after = marginals(board, worlds)
+        self.assertEqual(after["E"].get("狩人", 0.0), 0.0)                              # 狩人は決まったので、灰に狩人はいない
+        self.assertGreater(after["E"]["人狼"], before["E"]["人狼"])                       # 灰が狭まった分、灰の人狼の見込みが上がる
+
+    def test_the_target_of_a_successful_guard_is_not_a_wolf(self):
+        board = self.board()
+        board.gj = ["E"]
+        worlds = enumerate_worlds(board)
+        self.assertIn("E", board.key_players())
+        self.assertTrue(worlds and all(w.assign["E"] != "人狼" for w in worlds))
+        self.assertEqual(marginals(board, worlds)["E"].get("人狼", 0.0), 0.0)
+        self.assertEqual(board.alive.count("E"), 1)                                      # 死んではいない
+
+    def test_the_report_names_them(self):
+        board = self.board()
+        board.pinned = {"I": "狩人"}
+        board.gj = ["E"]
+        text = board_report(board, "昼2")
+        self.assertIn("狩CO I", text)
+        self.assertIn("GJの護衛先 E", text)
+
+    def test_a_pinned_role_that_is_not_in_the_deck_leaves_no_world(self):
+        board = self.board()
+        board.pinned = {"I": "猫又"}
+        self.assertEqual(enumerate_worlds(board), [])
+
+
 class Log17BoardTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -417,7 +458,9 @@ class Log17BoardTest(unittest.TestCase):
         standard = confirmed(board, worlds, 3)
         self.assertEqual(sorted(standard["黒"]), ["D", "M"])
         self.assertEqual(sorted(standard["白"]), ["J", "L"])
-        self.assertEqual(confirmed(board, worlds, 2)["黒"], ["M"])      # 狂人の偽を入れると、D が狂人の世界が残る
+        self.assertEqual(confirmed(board, worlds, 2)["黒"], [])         # 12A猫は役欠けあり: 霊が欠けて偽の霊能が名乗った世界(ありうる)まで広げると、M が黒とは言い切れない
+        plain = board_at({**self.record, "missing": False, "roles": ROLES_12A_NEKO}, 1)           # 役欠けなし(山はダミーなしの11枚)で数えると
+        self.assertEqual(confirmed(plain, enumerate_worlds(plain), 2)["黒"], ["M"])      # 狂人の偽を入れても M は黒で、D が狂人の世界が残る
 
     def test_a_cut_black_takes_the_actual_game_out_of_the_standard_reading(self):
         tiers = []
@@ -447,7 +490,9 @@ class Log17BoardTest(unittest.TestCase):
         self.assertIn("名乗った人の種類の見込み", stage_report(self.record, 0))
 
     def test_no_shares_are_shown_when_only_rare_worlds_remain(self):
-        self.assertIn("まれだけなので、出さない", stage_report(self.record, 4))
+        plain = {**self.record, "missing": False, "roles": ROLES_12A_NEKO}      # 役欠けなしで数えると、昼3(最後の人狼が狼COしたあと)は、まれだけ
+        self.assertIn("まれだけなので、出さない", stage_report(plain, 4))
+        self.assertNotIn("まれだけなので、出さない", stage_report(self.record, 4))      # 役欠けありなら、霊が欠けた世界(ありうる)が残る
 
     def test_unknown_event_kind_is_refused(self):
         record = json.loads(json.dumps(self.record))
@@ -513,7 +558,10 @@ class SetupAndRandomWhiteTest(unittest.TestCase):
         self.assertEqual(kari.roles["村人"], 4)
         self.assertEqual(sum(kari.roles.values()), 10)
         neko = make_board("12a-neko", 2)
-        self.assertEqual((neko.players[-1], neko.claims[-1], neko.random_white, neko.fake_black_first, neko.dummy), ("K", ("K", "霊能者"), False, FAKE_BLACK_FIRST, None))
+        self.assertEqual((neko.players[-1], neko.claims[-1], neko.random_white, neko.fake_black_first, neko.dummy), (DUMMY, ("K", "霊能者"), False, FAKE_BLACK_FIRST, DUMMY))     # 12A猫も役欠けあり(依頼者)
+        self.assertEqual((neko.players[:-1], neko.roles["村人"], sum(neko.roles.values())), (list("ABCDEFGHIJK"), 4, 12))
+        flat = make_board("12a-neko", 2, missing=False)
+        self.assertEqual((flat.dummy, flat.players, flat.roles), (None, list("ABCDEFGHIJK"), ROLES_12A_NEKO))
         self.assertTrue(make_board("12a-neko", 2, random_white=True).random_white)    # 約束事を上書きできる
         plain = make_board("11a", 2, missing=False)
         self.assertEqual((plain.dummy, plain.players, plain.roles), (None, list("ABCDEFGHIJ"), ROLES_11A))                 # 役欠けなし: ダミーは村人で、参加者10人ぶんの山
@@ -568,8 +616,9 @@ class SetupAndRandomWhiteTest(unittest.TestCase):
         self.assertTrue(all(w.assign["A"] != "占い師" for w in enumerate_worlds(board)))
         plain = board_at({**record, "missing": False}, 0)                                # 記録で、役欠けなしにもできる
         self.assertEqual((plain.dummy, plain.roles), (None, ROLES_11A))
-        old = board_at(load_record(ROOT / "knowledge/boards/log17.json"), 0)               # setup のない記録は、12A猫のまま
-        self.assertEqual(old.roles, ROLES_12A_NEKO)
+        old = board_at(load_record(ROOT / "knowledge/boards/log17.json"), 0)               # setup のない記録は、12A猫のまま(役欠けあり)
+        self.assertEqual(old.roles, setup_roles("12a-neko")[0])
+        self.assertEqual((old.dummy, old.players[-1]), (DUMMY, DUMMY))
         self.assertFalse(old.random_white)
 
     def test_the_pattern_list_follows_the_role_table(self):
