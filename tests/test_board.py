@@ -5,9 +5,11 @@ from itertools import permutations
 from pathlib import Path
 
 from zinro_learn.board import (
-    FAKE_BLACK_FIRST, ROLES_12A_NEKO, Board, board_at, claim_patterns, confirmed, enumerate_worlds, load_record, narrowing_wins,
-    next_hang_line, marginals, pattern_label, patterns_text, result_factor, rope_slack, stage_report, type_shares, world_judgement,
+    FAKE_BLACK_FIRST, FAKE_BLACK_FIRST_RANDOM_WHITE, ROLES_10A_KARI, ROLES_12A_NEKO, SETUPS, Board, board_at, claim_patterns, confirmed, enumerate_worlds,
+    load_record, make_board, narrowing_wins, next_hang_line, marginals, pattern_label, patterns_text, result_factor, rope_slack, stage_report, type_shares,
+    world_judgement,
 )
+from zinro_learn.board import ROLES_11A as ROLES_11A_PKG
 
 ROOT = Path(__file__).resolve().parent.parent
 SMALL = {"人狼": 1, "狂人": 1, "占い師": 1, "霊能者": 1, "村人": 2}
@@ -461,6 +463,82 @@ class Log16BoardTest(unittest.TestCase):
         self.assertTrue(narrowing_wins(7, 1, 0, 3))
         self.assertTrue(narrowing_wins(5, 1, 1, 0))                  # 確定黒を吊れば終わり
         self.assertFalse(narrowing_wins(11, 3, 0, 10))
+
+
+class SetupAndRandomWhiteTest(unittest.TestCase):
+    """10A狩・11A(依頼者: 比較的簡単な配役。人狼online では、基本的に初日に白が出る環境=白ランオンでやる)。"""
+
+    def test_the_setups_name_the_role_tables_and_the_random_white_promise(self):
+        self.assertEqual(set(SETUPS), {"12a-neko", "11a", "10a-kari"})
+        self.assertEqual(ROLES_11A_PKG, ROLES_11A)                                    # 11A のメモ(`prob_11a.md`)の配役: 人狼2・占い1・霊能1・狩人1・狂人1・村人4(ダミーを除く)
+        self.assertEqual(sum(ROLES_10A_KARI.values()), 9)                              # 10A狩: ダミーを除いて9人(推測。11A から村人が1人少ない)
+        self.assertEqual(ROLES_10A_KARI["人狼"], 2)
+        self.assertFalse(SETUPS["12a-neko"].random_white)                              # 12A猫は、ランオフ(占い師が初日の相手を選ぶ)
+        self.assertTrue(SETUPS["11a"].random_white and SETUPS["10a-kari"].random_white)
+        self.assertLess(SETUPS["11a"].fake_black_first, SETUPS["12a-neko"].fake_black_first)
+        self.assertEqual(SETUPS["11a"].fake_black_first, FAKE_BLACK_FIRST_RANDOM_WHITE)
+
+    def test_make_board_puts_the_seers_first_and_the_medium_last(self):
+        board = make_board("11a", 3, [dict(player="A", target="D", color="白")])
+        self.assertEqual(board.players, list("ABCDEFGHIJ"))
+        self.assertEqual(board.claims, [("A", "占い師"), ("B", "占い師"), ("C", "占い師"), ("J", "霊能者")])
+        self.assertTrue(board.random_white and board.rco)
+        self.assertEqual(board.results, [{"kind": "占い", "first": True, "player": "A", "target": "D", "color": "白"}])
+        self.assertEqual(make_board("10a-kari", 2).players, list("ABCDEFGHI"))
+        neko = make_board("12a-neko", 2)
+        self.assertEqual((neko.players[-1], neko.claims[-1], neko.random_white, neko.fake_black_first), ("K", ("K", "霊能者"), False, FAKE_BLACK_FIRST))
+        self.assertTrue(make_board("12a-neko", 2, random_white=True).random_white)    # 約束事を上書きできる
+        with self.assertRaises(ValueError):
+            make_board("10a-kari", 9)
+
+    def test_a_first_day_black_cannot_come_from_the_real_seer_under_random_white(self):
+        black = [dict(player="A", target="C", color="黒")]
+        on = enumerate_worlds(make_board("11a", 2, black))
+        self.assertTrue(on)
+        self.assertTrue(all(w.assign["A"] != "占い師" for w in on))                    # 黒を出した A は、必ず偽
+        self.assertTrue(all(w.assign["B"] == "占い師" for w in on))                    # もう一方の B が本物
+        shares = shares_of(make_board("11a", 2, black), on)
+        self.assertEqual(shares["B"]["真"], 1.0)
+        self.assertEqual(shares["A"]["真"], 0.0)
+        off = enumerate_worlds(make_board("11a", 2, black, random_white=False))
+        self.assertTrue(any(w.assign["A"] == "占い師" for w in off))                   # ランオフなら、本物の黒もありうる
+
+    def test_only_the_first_result_is_pinned_to_white(self):
+        later = [dict(player="A", target="C", color="黒", first=False)]
+        board = make_board("11a", 2, later)
+        self.assertTrue(any(w.assign["A"] == "占い師" for w in enumerate_worlds(board)))   # 二手目以降の黒は、本物でも出る
+
+    def test_white_results_are_the_same_with_or_without_random_white(self):
+        white = [dict(player="A", target="C", color="白"), dict(player="B", target="D", color="白")]
+        on = enumerate_worlds(make_board("11a", 2, white))
+        off = enumerate_worlds(make_board("11a", 2, white, random_white=False))
+        self.assertEqual(sorted(sorted(w.assign.items()) for w in on), sorted(sorted(w.assign.items()) for w in off))
+
+    def test_the_fake_black_weight_follows_the_board_unless_given(self):
+        board = make_board("11a", 2, [dict(player="A", target="C", color="黒", first=True)], random_white=False)
+        fake_world = {"A": "人狼", "B": "占い師", "C": "村人"}
+        self.assertAlmostEqual(result_factor(board, fake_world), FAKE_BLACK_FIRST_RANDOM_WHITE)       # 盤面の数字(11A は 0.05)
+        self.assertAlmostEqual(result_factor(board, fake_world, 0.3), 0.3)                          # 渡せば、そちらが先
+        self.assertAlmostEqual(result_factor(make_board("12a-neko", 2, [dict(player="A", target="C", color="黒")]), fake_world), FAKE_BLACK_FIRST)
+
+    def test_a_record_names_its_setup(self):
+        record = {"players": list("ABCDEFGHIJ"), "setup": "11a", "stages": [{"name": "昼1"}],
+                  "events": [{"stage": 0, "t": "co", "player": "A", "role": "占い師"}, {"stage": 0, "t": "co", "player": "B", "role": "占い師"},
+                             {"stage": 0, "t": "co", "player": "J", "role": "霊能者"},
+                             {"stage": 0, "t": "result", "kind": "占い", "player": "A", "target": "C", "color": "黒"}]}
+        board = board_at(record, 0)
+        self.assertEqual(board.roles, ROLES_11A)
+        self.assertTrue(board.random_white)
+        self.assertTrue(all(w.assign["A"] != "占い師" for w in enumerate_worlds(board)))
+        old = board_at(load_record(ROOT / "knowledge/boards/log17.json"), 0)               # setup のない記録は、12A猫のまま
+        self.assertEqual(old.roles, ROLES_12A_NEKO)
+        self.assertFalse(old.random_white)
+
+    def test_the_pattern_list_follows_the_role_table(self):
+        text = patterns_text(roles=ROLES_11A, name="11A")
+        self.assertTrue(text.startswith("11A: 占い-霊の名乗りの数"))
+        self.assertIn("3-1: 定番: 真狼狂-真 | ありうる: 真狼狼-真", text)                    # 人狼2・狂人1: 偽が2人なら、狼と狂が定番
+        self.assertNotIn("11A", patterns_text())                                          # 引数なしは、これまでどおり
 
 
 if __name__ == "__main__":

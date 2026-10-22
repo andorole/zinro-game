@@ -58,6 +58,10 @@
   指定された人外が出る、という結びつきは入れていない。対抗伏せ貫通(猫COを偽と割り切って、対抗を出さずに吊る)は、いまはやっていないので、
   対抗が出ない猫は吊らない(依頼者)。
 
+白ランオン(盤面 board.random_white。依頼者: 10A狩・11A は、人狼online の、基本的に初日に白が出る環境でやる):
+- 本物の占い師の初日の結果は、人狼でない人への無作為な白だけ。だから、初日に黒を出した占いは、その場で偽と分かる(村は先に吊る。霊能の報告を待たない)。
+  環境の護衛は、その偽を守らない。初日に貰った白は、本物と見る占いのものだけ信じて、灰の無作為の吊りから外す(ランオフの12A猫でも同じ)。
+
 狩人のギドラ(hunter。依頼者の説明):
 - off: 狩人は名乗らない(指定されたら、そのまま吊られる)。
 - gidra: 吊りを指定された本物の狩人は、ギドラCOをして吊りを避ける(GIDRA_HUNTER。依頼者: 本指定のタイミングで、狩もギドラCOをする)。
@@ -209,6 +213,8 @@ def play(prep: Prepared, roles: dict[str, str], policy: str, bite: str, rng: ran
         raise ValueError(f"知らない狩人の扱い: {hunter}")
     board = prep.board
     black_sayer = next((r["player"] for r in board.results if r["kind"] == "占い" and r["color"] == "黒"), None)
+    if board.random_white:
+        black_sayer = None                                # 白ランオン: 初日の黒を出した占いは偽と分かるので、環境の護衛は守らない
     if guard not in GUARDS:
         raise ValueError(f"知らない護衛: {guard}")
     guarded = {None: None, "medium": prep.medium, "blacksayer": black_sayer, "env": None}[guard]
@@ -246,6 +252,14 @@ def play(prep: Prepared, roles: dict[str, str], policy: str, bite: str, rng: ran
     night = 0
     reports: list[tuple[str, str, str]] = []              # 夜に出た結果(占い, 相手, 色)。翌朝、占いが生きていれば出る
     safe: set[str] = set()                                # 本物と見る占いに白を出された人
+    if board.random_white:
+        refuted = {sr for sr, t, c in public if c == "黒"}          # 白ランオン: 本物の初日の結果は白だけ。黒を出した占いは、その場で偽と分かる
+        blacks = [b for b in blacks if black_src.get(b) not in refuted]
+    for sr, t, c in public:
+        if c == "白":                                      # 初日に貰った白(白ランオンでは、どの占いも出す)
+            safe_src.setdefault(t, sr)
+            if sr == kept and sr not in refuted:
+                safe.add(t)
 
     def counts() -> tuple[int, int]:
         wolves = sum(1 for p in alive if roles[p] == "人狼")
