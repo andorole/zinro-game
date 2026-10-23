@@ -13,10 +13,9 @@
 占いの名乗りを先に吊り、黒先は占いを吊り終えてから吊る(依頼者の言う「進行提示」の、黒吊りと占いロラの違い)。
 
 狼の噛み方(毎晩1人):
-- 灰: 灰(名乗っていない人)から無作為に噛む。11A のメモの基本の前提。
+- 灰: 灰(名乗っていない人)から無作為に噛む。11A のメモの基本の前提。依頼者によると、実際は灰は噛まれない(次の名乗り)。
 - 名乗り: 狼でない占い・霊能の名乗りを先に噛む(狼は、本物と狂人を見分けられないので、区別しない)。いなければ灰。
-- 占い・霊能: 依頼者の話「狼が噛むのは、占いか霊能。いまの環境では、どちらかで固定されている」。占いを噛む(seer)は、狼でない占いの名乗りを無作為に、
-  霊能を噛む(medium)は、霊能の名乗りを噛む。噛む先が死んでいれば、もう一方、なければ灰。どちらで固定かは、聞いていないので、両方を試算する。
+  依頼者の話「狼が噛むのは、占いか霊能。どちらかで固定されているとは、占いか霊能の各候補以外は噛まれない、という意味」と同じ形。標準。
 - どの噛み方でも、名乗った狩人は、HUNTER_BITE の割合で、先に噛みに来る(依頼者: もちろん噛みに行く)。
 
 狩人の護衛(毎晩1人。狼がその人を噛もうとしたら、噛みは失敗する。狩人が生きているあいだだけ):
@@ -71,8 +70,13 @@
 - gidra: 吊りを指定された本物の狩人は、狩COをして吊りを避ける。その割合は、10A狩・11A では 1(依頼者: 当然狩COする。ギドラはない。盤面の hunter_co)。
   12A猫では GIDRA_HUNTER(依頼者: 本指定のタイミングで、狩もギドラCOをする。ただし「狩人も指定されたらギドラの場合あり」で、いつもではない。割合は仮)。
   名乗らなかった狩人は、そのまま吊られる。
-  そのほかに、狩人は、10A狩・11A では昼1に指定される前に、グレーを狭めるために出ることがあり(HUNTER_PRE_CO。依頼者: 出たりする)、護衛が成功した(GJ)あとの昼にも露出することがある
-  (HUNTER_GJ_CO。依頼者: GJがあった時も露出する事ある)。GJで露出した狩人は護衛先を明かす: 護衛先は、狼が噛みに来た人なので人狼でなく、村は無作為の吊りから外す。
+  そのほかに、狩人は、指定される前にも出る。依頼者の答え: 出る場面は「指定されたらか、グレーが狭まったら詰む時か、黒を出された時。多分この位」。
+  - 黒を出された時: 黒を出した占い(まだ偽と分かっていない)がいれば、朝のうちに名乗る(HUNTER_BLACK_CO)。名乗った狩人は、黒先でも吊られない
+    (狩貫通は初手にはしない)。偽の狩人が出ていない単独のCOなら、黒は嘘と分かり、黒を出した占いは偽(reads のとき)。
+  - グレーが狭まったら詰む時: 自分が灰から抜けると、灰を端から吊れば最悪の並びでも村が勝つ(灰詰めが成り立つ)とき、名乗る(HUNTER_NARROW_CO)。
+    「詰む」の読み(灰詰めが成り立つ)は、私の読みで、確認したい。
+  - 護衛が成功した(GJ)あとの昼にも露出することがある(HUNTER_GJ_CO。依頼者が前に言った「GJがあった時も露出する事ある」。今回の答えには入っていない)。
+    GJで露出した狩人は護衛先を明かす: 護衛先は、狼が噛みに来た人なので人狼でなく、村は無作為の吊りから外す。
   狩COした狩人(偽の狩人COがない gidra のとき)は、盤面では狩人に決まった人として数える。
   村は、名乗った人を除いて、吊り先を選び直す。名乗った狩人は、ほかに候補があるあいだ吊られない(狩COを偽と割り切って吊る「狩貫通」は、
   初手にはしない、と聞いた。後の日の狩貫通は、いまは入れていない)。名乗っている狩人(人狼でない)は、狼が HUNTER_BITE の割合で噛みに来る(依頼者: もちろん噛みに行く)。
@@ -107,7 +111,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from itertools import accumulate
 
-from .board import FAKE_BLACK_LATER, Board, World, enumerate_worlds, marginals, pattern_label
+from .board import FAKE_BLACK_LATER, Board, World, enumerate_worlds, marginals, narrowing_wins, pattern_label
 
 ENCLOSE_NEXT = 0.5               # 仮。偽の人狼が、次手(夜1の結果)で、灰の仲間に白を出す(囲う)割合
 OPEN_CAT_BITE = 0.2              # 仮。名乗っている猫又を、人狼2人・夜に6人のときに、狼が噛む割合(依頼者: たまに噛む。最近はあまり噛まない)
@@ -123,11 +127,14 @@ GIDRA_HUNTER = 0.7               # 仮。12A猫で、指定された狩人が名
 FAKE_HUNTER_FIRST = 0.5          # 仮。fake で、黒なしで昼1に指定された人狼・狂人が、偽の狩人COで吊りを避ける割合(依頼者: 初手の回避は狩が良いことがある。狩貫通は初手にはしない。かなり悩ましい)
 HUNTER_COUNTER = 1.0             # 依頼者の話(本物の狩人も対抗COする)。偽の狩人が出たとき、本物の狩人が対抗として出る割合
 HUNTER_BITE = 1.0                # 依頼者の話(もちろん噛みに行く)。名乗っている狩人(人狼でない)を、狼が噛みに来る割合
-HUNTER_GJ_CO = 0.3               # 仮。護衛が成功した(GJ)あとの昼に、本物の狩人が狩COして露出する割合(依頼者: GJがあった時も露出する事ある)
+HUNTER_BLACK_CO = 1.0            # 仮。黒を出された本物の狩人が、朝のうちに狩COする割合(依頼者: 狩人が出るのは、指定されたら・グレーが狭まって詰む時・黒を出された時。多分この位)
+HUNTER_NARROW_CO = 1.0           # 仮。自分が灰から抜けると灰詰めが成り立つ(グレーが狭まって詰む)とき、本物の狩人が狩COする割合(「詰む」の読みは確認したい)
+HUNTER_GJ_CO = 0.3               # 仮。護衛が成功した(GJ)あとの昼に、本物の狩人が狩COして露出する割合(依頼者: GJがあった時も露出する事ある。今回の答えには入っていない)
 HUNTER_PAIR_WAIT = 0.3           # 仮。狩人が2人名乗ったとき、その日は吊らずに放置する割合(依頼者: 即吊りでなく、一旦放置する進行を取る場合もある)
 HUNTER_PAIR_READ = 0.7           # 仮。狩人が2人名乗ったとき、偽の方を吊る割合(依頼者: 偽目を吊る。これも大体は発言から。残りは、本物を吊ってしまう)
 HUNTERS = ("off", "gidra", "fake")
-HUNTER_NAME = {"off": "狩人は名乗らない", "gidra": "狩人は指定されたら名乗る(12A猫は場合あり)", "fake": "狩人は指定されたら名乗り、人外も昼1の指定で偽の狩人を名乗る"}
+HUNTER_NAME = {"off": "狩人は名乗らない", "gidra": "狩人は指定されたら(12A猫は場合あり)・黒を出されたら・グレーが狭まって詰むときに名乗る",
+               "fake": "狩人は上のとおり名乗り、人外も昼1の指定で偽の狩人を名乗る"}
 CATS = ("off", "hidden", "open", "counter", "gidra")
 CAT_NAME = {"off": "猫又の力なし", "hidden": "猫又は隠れている", "open": "猫又は名乗っている", "counter": "猫又は名乗り、対抗猫が出る",
             "gidra": "猫又は隠れていて、黒を刺されたら・指定されたら名乗る"}
@@ -135,9 +142,8 @@ POLICIES = ("grey", "roll_keep", "roll_stop", "roll")
 POSTERIOR = "posterior"                                  # 尤度吊り: 毎日、公開された情報に合う世界を数え直して、人狼の見込みがいちばん高い人を吊る(盤面だけの読み)
 ALL_POLICIES = (*POLICIES, POSTERIOR)
 POLICY_NAME = {"grey": "グレー", "roll_keep": "占いロラ", "roll_stop": "黒スト", "roll": "ロラ完遂", POSTERIOR: "尤度吊り"}
-BITES = ("grey", "claim")                                # 表の標準の噛み方(灰を噛む=11A のメモの前提、名乗りを噛む=占い・霊能の名乗りを無作為に噛む)
-BITES_ALL = (*BITES, "seer", "medium")                   # 依頼者: 狼が噛むのは、占いか霊能。いまの環境では、どちらかで固定されている
-BITE_NAME = {"grey": "灰を噛む", "claim": "名乗りを噛む", "seer": "占いを噛む", "medium": "霊能を噛む"}
+BITES = ("grey", "claim")                                # 灰を噛む=11A のメモの前提(実際と違う)、名乗りを噛む=占い・霊能の名乗りを無作為に噛む(依頼者: 占いか霊能の各候補以外は噛まれない。標準)
+BITE_NAME = {"grey": "灰を噛む", "claim": "名乗りを噛む"}
 GUARDS = (None, "medium", "blacksayer", "env", "either")
 GUARD_NAME = {None: "護衛なし", "medium": "霊護衛固定", "blacksayer": "黒出し占い護衛固定", "env": "環境の護衛", "either": "占いか霊能のどちらかを護衛(無作為)"}
 
@@ -237,7 +243,7 @@ def play(prep: Prepared, roles: dict[str, str], policy: str, bite: str, rng: ran
     if guard not in GUARDS:
         raise ValueError(f"知らない護衛: {guard}")
     guarded = {None: None, "medium": prep.medium, "blacksayer": black_sayer, "env": None, "either": None}[guard]
-    if bite not in BITES_ALL:
+    if bite not in BITES:
         raise ValueError(f"知らない噛み方: {bite}")
     claimants = set(prep.seers) | ({prep.medium} if prep.medium else set())
     alive = set(board.players)
@@ -375,6 +381,14 @@ def play(prep: Prepared, roles: dict[str, str], policy: str, bite: str, rng: ran
                     safe.add(t)
                     safe_src[t] = seer
         reports = []
+        if hunter != "off" and real_hunter in alive and real_hunter not in hunter_out:
+            givers = sorted({sr for sr, t, c in public if t == real_hunter and c == "黒" and sr not in refuted})
+            if givers and rng.random() < HUNTER_BLACK_CO:
+                hunter_out.append(real_hunter)                        # 黒を出された狩人は、朝のうちに出る(依頼者)
+                if trace is not None:
+                    trace.append(("hunter", real_hunter, "黒"))
+                if reads and len([q for q in hunter_out if q in alive]) == 1:
+                    refuted.update(givers)                            # 狩人の単独CO: 黒は嘘と分かる。黒を出した占いは偽
         if reads:
             for sr, t, c in public:
                 if sr not in refuted and colors.get(t, c) != c:
@@ -388,7 +402,7 @@ def play(prep: Prepared, roles: dict[str, str], policy: str, bite: str, rng: ran
             if kept in refuted or (confirmed and kept not in confirmed):
                 choices = confirmed or [q for q in reversed(order) if q in alive and q not in refuted]    # 黒を当てた占いを、本物と見る
                 kept = choices[0] if choices else None
-        alive_blacks = [p for p in blacks if p in alive]
+        alive_blacks = [p for p in blacks if p in alive and p not in hunter_out]       # 名乗った狩人は、黒先でも吊らない(狩貫通は初手にはしない)
         if cat == "gidra" and real_cat in alive and not revealed:
             if fake_out and fake_cat in alive:
                 reveal("対抗")                            # 偽の猫が出ているので、真猫は対抗として露出する(依頼者: 対抗が居たら基本的に露出)
@@ -397,9 +411,17 @@ def play(prep: Prepared, roles: dict[str, str], policy: str, bite: str, rng: ran
         pending, known_fake, exposed = cats()
         if hunter != "off" and real_hunter in alive and real_hunter not in hunter_out:
             why = None
-            if night == 0 and rng.random() < board.hunter_pre_co:
-                why = "グレー狭め"                                  # 10A狩・11A: 指定される前の昼1に、グレーを狭めるために出る(依頼者)
-            elif gj_last and rng.random() < HUNTER_GJ_CO:
+            held_now = (set() if pending else exposed) | set(hunter_out)               # 猫が2人名乗っていれば、どちらかを吊るので、灰から抜けた人に数えない
+            greys_now = [q for q in alive if q not in alive_blacks and q not in safe and q not in held_now]       # 灰詰めの数え方(盤面の報告と同じ): 名乗った占い・霊能も、白黒が確定していなければ、灰に数える
+            if real_hunter in greys_now:
+                wolves_left = counts()[0]
+
+                def wins_with(greys: int) -> bool:                 # 確定した黒を先に吊り、灰を端から吊ると、最悪の並びでも村が勝つか
+                    return narrowing_wins(len(alive), wolves_left, len(alive_blacks), greys)
+
+                if not wins_with(len(greys_now)) and wins_with(len(greys_now) - 1) and rng.random() < HUNTER_NARROW_CO:
+                    why = "詰み"                                   # グレーが狭まったら詰む時: 自分が灰から抜けると、灰詰めが成り立つので、出る(依頼者)
+            if why is None and gj_last and rng.random() < HUNTER_GJ_CO:
                 why = "GJ"                                         # 護衛が成功したあとの昼に、露出する(依頼者)
             if why:
                 hunter_out.append(real_hunter)
@@ -571,13 +593,8 @@ def play(prep: Prepared, roles: dict[str, str], policy: str, bite: str, rng: ran
         open_nonwolf = [p for p in nonwolf if p not in exposed] or nonwolf
         if bite == "claim":
             pool = [p for p in open_nonwolf if p in claimants] or [p for p in open_nonwolf if p not in claimants] or open_nonwolf
-        elif bite == "grey":
+        else:
             pool = [p for p in open_nonwolf if p not in claimants] or open_nonwolf
-        else:                                                      # 占いを噛む・霊能を噛む(依頼者: 噛むのは占いか霊能。いまの環境では、どちらかで固定)
-            seer_pool = [p for p in open_nonwolf if p in prep.seers]
-            medium_pool = [p for p in open_nonwolf if p == prep.medium]
-            first, second = (seer_pool, medium_pool) if bite == "seer" else (medium_pool, seer_pool)
-            pool = first or second or [p for p in open_nonwolf if p not in claimants] or open_nonwolf         # 噛む先がいなければ、もう一方、灰
         wolves_now = sum(1 for p in alive if roles[p] == "人狼")
         if exposed & set(nonwolf) and wolves_now == 2 and len(alive) == 6 and rng.random() < OPEN_CAT_BITE:
             pool = sorted(exposed & set(nonwolf))                          # 人狼2人・夜に6人: 猫又を噛めば、一気に最終日に行ける

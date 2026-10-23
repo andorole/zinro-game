@@ -8,7 +8,7 @@ from zinro_learn.board import (
     DUMMY, FAKE_BLACK_FIRST, FAKE_BLACK_FIRST_RANDOM_WHITE, FAKE_BLACK_LATER, REASON_MISSING, ROLES_10A_KARI, ROLES_12A_NEKO, SETUPS, Board, board_at, claim_patterns, confirmed,
     enumerate_worlds, load_record, make_board, narrowing_wins, next_hang_line, marginals, pattern_label, patterns_text, result_factor, rope_slack, setup_roles,
     stage_report, type_shares, world_judgement,
-    board_report,
+    board_report, MISSING_TIER, domain,
 )
 from zinro_learn.board import ROLES_11A as ROLES_11A_PKG
 
@@ -458,9 +458,10 @@ class Log17BoardTest(unittest.TestCase):
         standard = confirmed(board, worlds, 3)
         self.assertEqual(sorted(standard["黒"]), ["D", "M"])
         self.assertEqual(sorted(standard["白"]), ["J", "L"])
-        self.assertEqual(confirmed(board, worlds, 2)["黒"], [])         # 12A猫は役欠けあり: 霊が欠けて偽の霊能が名乗った世界(ありうる)まで広げると、M が黒とは言い切れない
-        plain = board_at({**self.record, "missing": False, "roles": ROLES_12A_NEKO}, 1)           # 役欠けなし(山はダミーなしの11枚)で数えると
-        self.assertEqual(confirmed(plain, enumerate_worlds(plain), 2)["黒"], ["M"])      # 狂人の偽を入れても M は黒で、D が狂人の世界が残る
+        self.assertEqual(confirmed(board, worlds, 2)["黒"], ["M"])      # 狂人の偽(ありうる)まで広げても、M は黒で、D が狂人の世界が残る
+        self.assertEqual(confirmed(board, worlds, 1)["黒"], [])         # 12A猫は役欠けあり: 霊が欠けて偽の霊能が名乗った世界(まれ。依頼者: そこまでない)まで広げると、M が黒とは言い切れない
+        plain = board_at({**self.record, "missing": False, "roles": ROLES_12A_NEKO}, 1)           # 役欠けなし(山はダミーなしの11枚)で数えても
+        self.assertEqual(confirmed(plain, enumerate_worlds(plain), 2)["黒"], ["M"])
 
     def test_a_cut_black_takes_the_actual_game_out_of_the_standard_reading(self):
         tiers = []
@@ -490,9 +491,9 @@ class Log17BoardTest(unittest.TestCase):
         self.assertIn("名乗った人の種類の見込み", stage_report(self.record, 0))
 
     def test_no_shares_are_shown_when_only_rare_worlds_remain(self):
-        plain = {**self.record, "missing": False, "roles": ROLES_12A_NEKO}      # 役欠けなしで数えると、昼3(最後の人狼が狼COしたあと)は、まれだけ
+        plain = {**self.record, "missing": False, "roles": ROLES_12A_NEKO}      # 昼3(最後の人狼が狼COしたあと): 実際の切りも、霊が欠けて偽の霊能が名乗る世界も、まれ
         self.assertIn("まれだけなので、出さない", stage_report(plain, 4))
-        self.assertNotIn("まれだけなので、出さない", stage_report(self.record, 4))      # 役欠けありなら、霊が欠けた世界(ありうる)が残る
+        self.assertIn("まれだけなので、出さない", stage_report(self.record, 4))
 
     def test_unknown_event_kind_is_refused(self):
         record = json.loads(json.dumps(self.record))
@@ -630,7 +631,7 @@ class SetupAndRandomWhiteTest(unittest.TestCase):
         deck, missing = setup_roles("11a")
         text = patterns_text(roles=deck, name="11A", missing=missing)
         self.assertIn("0-1: 定番: なし-真", text)                                          # 役欠けあり: 占いが欠けて、だれも名乗らない盤面もある
-        self.assertIn("1-1: 定番: 真-真 | ありうる: 狼-真、真-狼、狂-真、真-狂", text)       # 欠けていて、偽だけが名乗った盤面は、ありうる
+        self.assertIn("1-1: 定番: 真-真 | ありうる: 狼-真、狂-真 | まれ: 真-狼、真-狂", text)       # 占いが欠けて偽だけが名乗った盤面は、ありうる。霊が欠けて偽が名乗った盤面は、まれ(依頼者: そこまでない)
 
 
 class MissingRoleTest(unittest.TestCase):
@@ -669,6 +670,44 @@ class MissingRoleTest(unittest.TestCase):
             self.assertTrue(all(w.assign[p] != "占い師" for p in "AB"))                  # 名乗った2人は、どちらも偽
             self.assertEqual(w.tier, 2)                                                   # ありうる
             self.assertIn(REASON_MISSING["占い師"], w.reasons)
+
+    def test_a_missing_medium_with_a_fake_claim_is_rare_while_a_missing_seer_stays_possible(self):
+        """依頼者: 霊が欠けているとき、人狼が霊を騙るのは、そこまでない。"""
+        board = make_board("10a-kari", 2, [dict(player="A", target="C", color="白"), dict(player="B", target="D", color="白")])
+        worlds = [w for w in enumerate_worlds(board) if w.assign[DUMMY] == "霊能者"]
+        self.assertTrue(worlds)
+        for w in worlds:
+            self.assertEqual(w.tier, 1)                                                   # まれ
+            self.assertIn(REASON_MISSING["霊能者"], w.reasons)
+        self.assertEqual(MISSING_TIER, {"占い師": 2, "霊能者": 1})
+        real = sum(w.weight for w in enumerate_worlds(board) if w.assign[DUMMY] != "霊能者")
+        self.assertLess(sum(w.weight for w in worlds), real * 0.01)                       # 霊が欠けた世界の重みは、ごく小さい
+
+    def test_a_late_claimant_is_never_the_real_role_because_the_real_one_claims_at_once(self):
+        """依頼者: 遅延霊は疑った方がいい。霊狂もあるが、どちらにしても人外。本物は一発言目に名乗る(rco)。"""
+        results = [dict(player="A", target="C", color="白"), dict(player="B", target="D", color="白")]
+        board = make_board("10a-kari", 2, results)                                        # 霊能の名乗りは I
+        board.late = ["I"]
+        self.assertEqual(domain(board, "I"), {"人狼", "狂人"})                            # 遅れて名乗った霊は、人外
+        self.assertEqual(domain(board, "A"), {"占い師", "人狼", "狂人"})                   # 遅れていない占いは、これまでどおり
+        worlds = enumerate_worlds(board)
+        self.assertTrue(worlds)
+        for w in worlds:
+            self.assertIn(w.assign["I"], ("人狼", "狂人"))
+            self.assertEqual(w.assign[DUMMY], "霊能者")                                    # 本物の霊は、初日犠牲者にいる(名乗りに本物がいなければ、ほかにいない)
+            self.assertNotIn(REASON_MISSING["霊能者"], w.reasons)                          # 遅延COなら、霊が欠けているのは当たり前: 段階を下げない
+        self.assertGreaterEqual(min(w.tier for w in worlds), 2)
+        self.assertEqual({p: sh for _, p, sh in type_shares(board, worlds)}["I"]["真"], 0.0)
+        on_time = make_board("10a-kari", 2, results)
+        self.assertGreater({p: sh for _, p, sh in type_shares(on_time, enumerate_worlds(on_time))}["I"]["真"], 0.9)
+
+    def test_a_late_claim_can_be_written_in_a_record_and_is_shown_in_the_report(self):
+        record = {"players": list("ABCDEFGHI"), "setup": "10a-kari", "rco": True, "stages": [{"name": "昼2"}],
+                  "events": [{"stage": 0, "t": "co", "player": "A", "role": "占い師"}, {"stage": 0, "t": "co", "player": "B", "role": "占い師"},
+                             {"stage": 0, "t": "co", "player": "I", "role": "霊能者", "late": True}]}
+        board = board_at(record, 0)
+        self.assertEqual(board.late, ["I"])
+        self.assertIn("I(遅延)", board_report(board, "昼2"))
 
     def test_a_real_seer_who_did_not_claim_is_still_excluded_by_rco(self):
         board = self.board()

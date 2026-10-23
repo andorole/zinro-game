@@ -51,9 +51,10 @@ FAKE_BLACK_FIRST_RANDOM_WHITE = 0.05
 # 偽の占い(人狼・狂人)が、二手目以降の夜に「人狼でない人」へ黒を出す重み(白を出す場合を 1)。依頼者の話「偽の二手目は、だいたい白」に合わせて、
 # 初手(FAKE_BLACK_FIRST)より小さい(仮)。進行の試算(progress.py)で偽の占いが夜に黒を出す重みと、同じ数字にする。
 FAKE_BLACK_LATER = 0.05
-# 10A狩・11A で、狩人が、吊りを指定される前の昼1に、グレーを狭めるために狩COする割合(依頼者: 10A狩や11A だと、グレーを狭める為に出たりする)。
-# 「出たりする」なので、たまに、の意味で仮に 0.3 と置いた(確認したい)。
-HUNTER_PRE_CO = 0.3
+# 霊が欠けている(初日犠牲者が霊能)のに、偽が霊を名乗る世界の段階。占いが欠けて全員偽の世界は、ありうる(2)のまま。
+# 霊は、依頼者が「そこまでない」と言ったので、まれ(1)にした(以前は、ありうる)。ただし、遅れて名乗った霊(遅延霊)は、本物なら一発言目に名乗るので、
+# 偽に決まる(Board.late)。そのときは、霊が欠けているのは当たり前なので、段階を下げない。
+MISSING_TIER = {"占い師": 2, "霊能者": 1}
 TYPE_ORDER = "真狼狂"                                    # 名乗りの種類: 本物・人狼・狂人
 
 
@@ -68,15 +69,14 @@ class Setup:
     fake_black_first: float                              # 偽の占いが、初手に人狼でない人へ黒を出す重み
     missing: bool = False                                # 役欠けあり(ダミーの役職は、人狼以外のどれかで、欠けうる)
     hunter_co: float | None = None                       # 吊りを指定された狩人が、狩COして吊りを避ける割合。None なら progress.GIDRA_HUNTER(12A猫の「場合あり」)
-    hunter_pre_co: float = 0.0                           # 指定される前の昼1に、グレーを狭めるために、狩人が狩COする割合(10A狩・11A)
 
 
 # 役欠けあり(依頼者: 初日犠牲者は、人狼以外はなる可能性がある)。12A猫も、10A狩・11A も同じ(log17 の部屋の「役欠け:あり」)。
 # 狩人: 10A狩・11A は、指定された狩人は当然狩COする(依頼者: ギドラはない。割合 1)。12A猫は、狩人も指定されたらギドラの「場合あり」(割合は仮)。
 SETUPS = {
     "12a-neko": Setup("12a-neko", "12A猫", ROLES_12A_NEKO, False, FAKE_BLACK_FIRST, True),
-    "11a": Setup("11a", "11A", ROLES_11A, True, FAKE_BLACK_FIRST_RANDOM_WHITE, True, 1.0, HUNTER_PRE_CO),
-    "10a-kari": Setup("10a-kari", "10A狩", ROLES_10A_KARI, True, FAKE_BLACK_FIRST_RANDOM_WHITE, True, 1.0, HUNTER_PRE_CO),
+    "11a": Setup("11a", "11A", ROLES_11A, True, FAKE_BLACK_FIRST_RANDOM_WHITE, True, 1.0),
+    "10a-kari": Setup("10a-kari", "10A狩", ROLES_10A_KARI, True, FAKE_BLACK_FIRST_RANDOM_WHITE, True, 1.0),
 }
 DEFAULT_SETUP = "12a-neko"
 
@@ -99,7 +99,7 @@ class Board:
     fake_black_first: float = FAKE_BLACK_FIRST                           # 偽の占いが、初手に人狼でない人へ黒を出す重み(白を出す場合を 1)
     fake_black_later: float = FAKE_BLACK_LATER                           # 偽の占いが、二手目以降の夜に人狼でない人へ黒を出す重み(白を出す場合を 1)
     hunter_co: float | None = None                                       # 吊りを指定された狩人が、狩COして吊りを避ける割合(None なら progress.GIDRA_HUNTER)
-    hunter_pre_co: float = 0.0                                           # 指定される前の昼1に、グレーを狭めるために、狩人が狩COする割合
+    late: list[str] = field(default_factory=list)                        # 遅れて名乗った人(遅延CO)。本物は一発言目に名乗る(rco)ので、遅れて名乗る人は人外(人狼か狂人)
     pinned: dict[str, str] = field(default_factory=dict)                 # 役職が決まっている人(狩COした狩人。偽の狩人COがない前提のとき)。その役職に決まる
     gj: list[str] = field(default_factory=list)                          # 護衛が成功した(GJ)ときの護衛先として公開された人(狼が噛みに来たので、人狼でない)
     dummy: str | None = None                                             # 役欠けあり: 初日犠牲者(最初から死んでいる)。役職は人狼以外のどれかで、占い・霊能・狩人なども欠けうる
@@ -160,7 +160,7 @@ def make_board(setup: str = DEFAULT_SETUP, seers: int = 2, results=(), random_wh
     if not 0 <= seers <= n - 1:
         raise ValueError("占いの名乗りの人数が多すぎる")
     board = Board(players=players + ([DUMMY] if missing else []), roles=roles, rco=rco, fake_black_first=cfg.fake_black_first,
-                  random_white=cfg.random_white if random_white is None else random_white, hunter_co=cfg.hunter_co, hunter_pre_co=cfg.hunter_pre_co,
+                  random_white=cfg.random_white if random_white is None else random_white, hunter_co=cfg.hunter_co,
                   dummy=DUMMY if missing else None)
     board.claims = [(p, "占い師") for p in players[:seers]] + [(players[-1], "霊能者")]
     board.results = [{"kind": "占い", "first": True, **r} for r in results]
@@ -168,11 +168,14 @@ def make_board(setup: str = DEFAULT_SETUP, seers: int = 2, results=(), random_wh
 
 
 def domain(board: Board, player: str) -> set[str]:
-    """その人がなりうる役職。名乗った人は、その役職か、偽(人狼・狂人)。襲撃で死んだ人とGJの護衛先は人狼でない。狼COは人狼。狩COした人(pinned)は、その役職。"""
+    """その人がなりうる役職。名乗った人は、その役職か、偽(人狼・狂人)。襲撃で死んだ人とGJの護衛先は人狼でない。狼COは人狼。狩COした人(pinned)は、その役職。
+    遅れて名乗った人(late)は、ロケットCOなら、本物ではない(依頼者: 遅延霊は疑った方がいい。霊狂もあるが、どちらにしても人外)。"""
     allowed = {r for r, n in board.roles.items() if n > 0}
     for p, role in board.claims:
         if p == player:
             allowed &= {role, "人狼", "狂人"}
+            if board.rco and player in board.late:
+                allowed.discard(role)
     if player in board.bitten or player in board.gj or player == board.dummy:
         allowed.discard("人狼")
     if player in board.pinned:
@@ -217,8 +220,9 @@ def world_judgement(board: Board, assign: dict) -> tuple[int, tuple[str, ...]]:
             continue
         if not any(assign[p] == role for p in claimants):
             if board.dummy is not None and assign.get(board.dummy) == role:
-                tier = min(tier, 2)                                       # 役欠け: 本物は初日犠牲者。偽の名乗りだけが出ている
-                reasons.append(REASON_MISSING[role])
+                if not any(p in board.late for p in claimants):           # 役欠け: 本物は初日犠牲者。偽の名乗りだけが出ている(遅延COなら、欠けているのは当たり前)
+                    tier = min(tier, MISSING_TIER[role])
+                    reasons.append(REASON_MISSING[role])
             else:
                 tier = min(tier, 1)
                 reasons.append(REASON_NO_REAL[role])
@@ -514,13 +518,15 @@ def board_at(record: dict, stage: int) -> Board:
                   ongoing=not record["stages"][stage].get("ended", False), rco=record.get("rco", True),
                   random_white=record.get("random_white", setup.random_white), fake_black_first=record.get("fake_black_first", setup.fake_black_first),
                   fake_black_later=record.get("fake_black_later", FAKE_BLACK_LATER), hunter_co=record.get("hunter_co", setup.hunter_co),
-                  hunter_pre_co=record.get("hunter_pre_co", setup.hunter_pre_co), dummy=DUMMY if missing else None)
+                  dummy=DUMMY if missing else None)
     for e in record["events"]:
         if e["stage"] > stage:
             continue
         kind = e["t"]
         if kind == "co":
             board.claims.append((e["player"], e["role"]))
+            if e.get("late"):
+                board.late.append(e["player"])                  # 遅れて名乗った(遅延CO)
         elif kind == "result":
             result = {k: e[k] for k in ("kind", "player", "target", "color")}
             # 初手: その人(その役職)の最初の結果。記録に first があれば、それを使う
@@ -545,7 +551,7 @@ def claim_summary(board: Board) -> str:
         names = []
         for p in board.claimants(role):
             shown = [f"{r['target']}{r['color']}" for r in board.results if r["player"] == p and ROLE_OF_KIND[r["kind"]] == role]
-            names.append(p + (f"({'・'.join(shown)})" if shown else ""))
+            names.append(p + ("(遅延)" if p in board.late else "") + (f"({'・'.join(shown)})" if shown else ""))
         if names:
             parts.append(f"{role}: {'、'.join(names)}")
     return " / ".join(parts) or "名乗りなし"
