@@ -935,7 +935,7 @@ class BiteAndGuardModeTest(unittest.TestCase):
 
 
 class LeaveClaimantTest(unittest.TestCase):
-    """依頼者: 夜1は初日犠牲者を噛む日(ダミー)。夜2は占いか霊能のどちらかを噛む(まほろ噛み)。夜3に、噛まなかった方を噛むとは限らない。
+    """依頼者: 夜1は初日犠牲者を噛む日(ダミー)。夜2は占いか霊能のどちらかを噛む日。夜3に、噛まなかった方を噛むとは限らない。
     どちらかが噛めた場合は、どちらかを残す方が寧ろ多い。"""
 
     def _game(self):
