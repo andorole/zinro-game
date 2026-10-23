@@ -9,6 +9,8 @@
   「定番／ありうる／まれ」の目安。重みの数字は仮。
 - 占い・霊能の本物は、一発言目に名乗る(ロケットCO。RCO)。狐のない配役では、ロケットCOが強いので、決まりというより約束事として、
   潜伏は「ない」(依頼者の説明)。Board.rco が真なら、名乗りに本物がいない世界(潜伏)は、世界から外す。
+  遅れて名乗った人(遅延CO。Board.late)は、本物なら一発言目に名乗るはずなので、人外目が上がる。ただし、完全に真切りではない(依頼者)ので、
+  その人が本物である世界の重みを LATE_REAL 倍にするだけで、外さない(占いも霊能も同じ)。
 - 結果の出し方の癖も、環境の話から入れた(result_factor)。初手に偽の占いが、人狼でない人へ黒を出すのは「人外の凸」で、
   最良手ではないので少ない。だから、初手の黒(対抗黒・グレーへの黒)は、真目になる(3-1 の対抗黒は、結構真目)。初手の対抗白は、本物が出せる相手が
   狂人だけ(相手が人狼なら黒になる)なので、出した側は偽目。いちばん有利な真狂狼でも、8割は偽(11A のメモの数え方と同じ)。
@@ -52,9 +54,12 @@ FAKE_BLACK_FIRST_RANDOM_WHITE = 0.05
 # 初手(FAKE_BLACK_FIRST)より小さい(仮)。進行の試算(progress.py)で偽の占いが夜に黒を出す重みと、同じ数字にする。
 FAKE_BLACK_LATER = 0.05
 # 霊が欠けている(初日犠牲者が霊能)のに、偽が霊を名乗る世界の段階。占いが欠けて全員偽の世界は、ありうる(2)のまま。
-# 霊は、依頼者が「そこまでない」と言ったので、まれ(1)にした(以前は、ありうる)。ただし、遅れて名乗った霊(遅延霊)は、本物なら一発言目に名乗るので、
-# 偽に決まる(Board.late)。そのときは、霊が欠けているのは当たり前なので、段階を下げない。
+# 霊は、依頼者が「そこまでない」と言ったので、まれ(1)にした(以前は、ありうる)。ただし、名乗りが全員遅れて出た(遅延CO。Board.late)なら、
+# 本物がいない(初日犠牲者)ことが遅れの説明になるので、段階を下げない。
 MISSING_TIER = {"占い師": 2, "霊能者": 1}
+# 遅れて名乗った人(遅延CO)が、本物の役職である世界にかける重み(on-time の名乗りが本物の世界を 1 としたときの比)。本物は一発言目に名乗る(RCO)ので、
+# 遅延は人外目が上がる。依頼者: 「遅延というだけで、真切り要素がある。完全に真切るわけではない」。占いも霊能も同じ。数字は仮(確認したい)。
+LATE_REAL = 0.1
 TYPE_ORDER = "真狼狂"                                    # 名乗りの種類: 本物・人狼・狂人
 
 
@@ -99,7 +104,8 @@ class Board:
     fake_black_first: float = FAKE_BLACK_FIRST                           # 偽の占いが、初手に人狼でない人へ黒を出す重み(白を出す場合を 1)
     fake_black_later: float = FAKE_BLACK_LATER                           # 偽の占いが、二手目以降の夜に人狼でない人へ黒を出す重み(白を出す場合を 1)
     hunter_co: float | None = None                                       # 吊りを指定された狩人が、狩COして吊りを避ける割合(None なら progress.GIDRA_HUNTER)
-    late: list[str] = field(default_factory=list)                        # 遅れて名乗った人(遅延CO)。本物は一発言目に名乗る(rco)ので、遅れて名乗る人は人外(人狼か狂人)
+    late: list[str] = field(default_factory=list)                        # 遅れて名乗った人(遅延CO)。本物は一発言目に名乗る(rco)ので、遅れて名乗る人は人外目が上がる(本物の世界の重みを late_real 倍)
+    late_real: float = LATE_REAL                                         # 遅延COの人が、本物である世界にかける重み(rco のとき。0 なら人外に決める、1 なら遅れを見ない)
     pinned: dict[str, str] = field(default_factory=dict)                 # 役職が決まっている人(狩COした狩人。偽の狩人COがない前提のとき)。その役職に決まる
     gj: list[str] = field(default_factory=list)                          # 護衛が成功した(GJ)ときの護衛先として公開された人(狼が噛みに来たので、人狼でない)
     dummy: str | None = None                                             # 役欠けあり: 初日犠牲者(最初から死んでいる)。役職は人狼以外のどれかで、占い・霊能・狩人なども欠けうる
@@ -169,13 +175,11 @@ def make_board(setup: str = DEFAULT_SETUP, seers: int = 2, results=(), random_wh
 
 def domain(board: Board, player: str) -> set[str]:
     """その人がなりうる役職。名乗った人は、その役職か、偽(人狼・狂人)。襲撃で死んだ人とGJの護衛先は人狼でない。狼COは人狼。狩COした人(pinned)は、その役職。
-    遅れて名乗った人(late)は、ロケットCOなら、本物ではない(依頼者: 遅延霊は疑った方がいい。霊狂もあるが、どちらにしても人外)。"""
+    遅れて名乗った人(late)も、本物でありうる(外さない)。本物らしさが下がることは、世界の重み(late_factor)で扱う。"""
     allowed = {r for r, n in board.roles.items() if n > 0}
     for p, role in board.claims:
         if p == player:
             allowed &= {role, "人狼", "狂人"}
-            if board.rco and player in board.late:
-                allowed.discard(role)
     if player in board.bitten or player in board.gj or player == board.dummy:
         allowed.discard("人狼")
     if player in board.pinned:
@@ -220,7 +224,7 @@ def world_judgement(board: Board, assign: dict) -> tuple[int, tuple[str, ...]]:
             continue
         if not any(assign[p] == role for p in claimants):
             if board.dummy is not None and assign.get(board.dummy) == role:
-                if not any(p in board.late for p in claimants):           # 役欠け: 本物は初日犠牲者。偽の名乗りだけが出ている(遅延COなら、欠けているのは当たり前)
+                if not (board.rco and all(p in board.late for p in claimants)):       # 役欠け: 本物は初日犠牲者。偽の名乗りだけが出ている(名乗りが全員遅延COなら、本物がいないことが遅れの説明になる)
                     tier = min(tier, MISSING_TIER[role])
                     reasons.append(REASON_MISSING[role])
             else:
@@ -278,6 +282,18 @@ def result_factor(board: Board, assign: dict, fake_black_first: float | None = N
             continue
         if r["color"] == "黒" and assign[r["target"]] != "人狼":
             factor *= fake_black_first if first else board.fake_black_later
+    return factor
+
+
+def late_factor(board: Board, assign: dict) -> float:
+    """遅れて名乗った人(遅延CO)が本物の役職である世界の重み。本物は一発言目に名乗る(rco)ので、遅れる本物は少ない(依頼者)。
+    人外(人狼・狂人)の遅延は、本物の遅延より多いと読む。外さずに、本物の世界を board.late_real 倍にする(占いも霊能も同じ)。"""
+    if not board.rco or not board.late:
+        return 1.0
+    factor = 1.0
+    for p, role in board.claims:
+        if p in board.late and assign.get(p) == role:
+            factor *= board.late_real
     return factor
 
 
@@ -343,7 +359,7 @@ def enumerate_worlds(board: Board, fake_black_first: float | None = None) -> lis
             for n in left.values():
                 ways //= factorial(n)
             tier, reasons = world_judgement(board, assign)
-            factor = result_factor(board, assign, fake_black_first)
+            factor = result_factor(board, assign, fake_black_first) * late_factor(board, assign)
             if factor > 0:                                                    # 0 は「その出し方はしない」(世界から外す)
                 worlds.append(World(dict(assign), +left, ways, tier, reasons, factor))
             return
@@ -518,7 +534,7 @@ def board_at(record: dict, stage: int) -> Board:
                   ongoing=not record["stages"][stage].get("ended", False), rco=record.get("rco", True),
                   random_white=record.get("random_white", setup.random_white), fake_black_first=record.get("fake_black_first", setup.fake_black_first),
                   fake_black_later=record.get("fake_black_later", FAKE_BLACK_LATER), hunter_co=record.get("hunter_co", setup.hunter_co),
-                  dummy=DUMMY if missing else None)
+                  late_real=record.get("late_real", LATE_REAL), dummy=DUMMY if missing else None)
     for e in record["events"]:
         if e["stage"] > stage:
             continue

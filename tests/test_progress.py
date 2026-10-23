@@ -10,7 +10,7 @@ from zinro_learn.progress import (
     ALL_POLICIES, BITES, CAT_HIDE_SEERS_FIRST, CATS, COUNTER_CAT, COUNTER_CAT_BLACK, COUNTER_CAT_WOLF, ENCLOSE_NEXT, FAKE_BLACK_LATER, FAKE_CAT_FIRST, FAKE_CAT_PROACTIVE,
     FAKE_HUNTER_FIRST, GIDRA_CAT, GIDRA_HUNTER, GUARDS, HUNTER_BITE, HUNTER_COUNTER, HUNTER_NAME, HUNTERS, OPEN_CAT_BITE, POLICIES, POLICY_NAME, POSTERIOR, compare,
     compare_policies, compare_text, counter_cat, hit_rates, night_result, play, prepare, sample_world, win_rate,
-    BITE_NAME, GUARD_NAME, HUNTER_BLACK_CO, HUNTER_GJ_CO, HUNTER_NARROW_CO, HUNTER_PAIR_READ, HUNTER_PAIR_WAIT,
+    BITE_NAME, GUARD_NAME, HUNTER_BLACK_CO, HUNTER_GJ_CO, HUNTER_NARROW_CO, HUNTER_PAIR_READ, HUNTER_PAIR_WAIT, HUNTER_SCENES, LEAVE_CLAIMANT,
 )
 
 
@@ -318,7 +318,8 @@ class CatTest(unittest.TestCase):
 
     def test_the_cats_takealong_lets_grey_hangs_reach_wolves_among_the_seers_and_an_open_cat_helps(self):
         board = neko("ABC")
-        self.assertLess(win_rate(board, "grey", "claim", n=6000, seed=5, cat="off")["rate"], 0.02)
+        with mock.patch("zinro_learn.progress.LEAVE_CLAIMANT", 0.0):                      # 名乗りを残す噛み方は別に見る(LeaveClaimantTest)
+            self.assertLess(win_rate(board, "grey", "claim", n=6000, seed=5, cat="off")["rate"], 0.02)
         self.assertGreater(win_rate(board, "grey", "claim", n=6000, seed=5, cat="hidden")["rate"], 0.04)   # 道連れで、名乗りの中の狼にも当たる
         hidden = win_rate(board, "roll_stop", "grey", n=8000, seed=5, cat="hidden")["rate"]
         opened = win_rate(board, "roll_stop", "grey", n=8000, seed=5, cat="open")["rate"]
@@ -674,8 +675,53 @@ class HunterGidraTest(unittest.TestCase):
 
     def test_the_hunter_scenes_are_the_stated_ones_and_the_flat_day_one_share_is_gone(self):
         self.assertEqual((HUNTER_BLACK_CO, HUNTER_NARROW_CO), (1.0, 1.0))                # 場面を聞いた(割合ではない): 黒を出された時、詰む時は、出る
-        self.assertTrue(0 < HUNTER_GJ_CO < 1)                                            # 仮
+        self.assertTrue(0 < HUNTER_GJ_CO <= 0.2)                                         # 仮。最新の答えは「基本的には指示されたら」なので、小さい
+        self.assertEqual(HUNTER_SCENES, ("指定", "黒", "詰み", "GJ"))
         self.assertFalse(hasattr(make_board("11a", 2, []), "hunter_pre_co"))
+
+    def test_the_scenes_can_be_chosen_and_a_hunter_without_the_designated_scene_is_hanged(self):
+        prep, roles = self._eleven()
+        trace: list = []
+        play(prep, roles, "grey", "claim", FirstRng(), trace, seer_results=False, cat="off", hunter="gidra", hunter_scenes=("指定",))
+        self.assertEqual(trace[:2], [("hunter", "A", "指定"), ("hang", "B", "人間")])
+        trace = []
+        play(prep, roles, "grey", "claim", FirstRng(), trace, seer_results=False, cat="off", hunter="gidra", hunter_scenes=("黒", "詰み", "GJ"))
+        self.assertEqual(trace[0], ("hang", "A", "人間"))                                 # 指定の場面を外すと、指定されても出ない(潜伏): そのまま吊られる
+        with self.assertRaises(ValueError):
+            play(prep, roles, "grey", "claim", FirstRng(), [], cat="off", hunter="gidra", hunter_scenes=("指定", "???"))
+        prep12, roles12 = self._twelve()
+        trace = []
+        play(prep12, roles12, "grey", "claim", FirstRng(), trace, seer_results=False, cat="off", hunter="gidra", hunter_scenes=("指定",))
+        self.assertEqual(trace[0], ("hang", "C", "人間"))                                 # 黒の場面を外すと、黒を出されても出ない
+
+    def test_a_hunter_can_come_out_on_a_chosen_day_without_being_designated(self):
+        """自発(出るタイミングの比較用): 昼 hunter_day の朝に出る。標準では使わない。"""
+        prep, roles = self._eleven()
+        trace: list = []
+        play(prep, roles, "grey", "claim", LastRng(), trace, seer_results=False, cat="off", hunter="gidra", hunter_scenes=("指定",), hunter_day=2)
+        kinds = [t[:3] for t in trace if t[0] in ("hunter", "hang")]
+        self.assertEqual(kinds[0][0], "hang")                                            # 昼1は出ない(LastRng は末尾の灰 I を選ぶので、指定もされない)
+        self.assertEqual(kinds[1], ("hunter", "A", "自発"))                              # 昼2の朝に出る
+        late: list = []
+        play(prep, roles, "grey", "claim", LastRng(), late, seer_results=False, cat="off", hunter="gidra", hunter_scenes=("指定",), hunter_day=0)
+        self.assertNotIn("自発", [t[2] for t in late if t[0] == "hunter"])                # 0 なら出ない
+        off: list = []
+        play(prep, roles, "grey", "claim", LastRng(), off, seer_results=False, cat="off", hunter="off", hunter_day=1)
+        self.assertNotIn("hunter", [t[0] for t in off])                                  # 狩人が名乗らない前提(off)では、自発もしない
+        with self.assertRaises(ValueError):
+            play(prep, roles, "grey", "claim", LastRng(), [], seer_results=False, cat="off", hunter="gidra", hunter_day=-1)
+
+    def test_a_hunter_who_comes_out_on_a_guard_morning_names_the_guard_target(self):
+        """GJの朝に出た狩人は、(出た理由によらず)護衛先を明かす。護衛先は人狼でない。"""
+        board = make_board("11a", 2, [dict(player="A", target="C", color="白"), dict(player="B", target="D", color="白")])
+        roles = {"A": "人狼", "B": "占い師", "C": "村人", "D": "村人", "E": "狩人", "F": "村人", "G": "人狼", "H": "狂人", "I": "村人", "J": "霊能者", DUMMY: "村人"}
+        for scenes, day in ((("GJ",), 0), ((), 2)):
+            seen: list = []
+            trace: list = []
+            with mock.patch("zinro_learn.progress.HUNTER_NARROW_CO", 0.0), mock.patch("zinro_learn.progress.HUNTER_GJ_CO", 1.0):
+                play(prepare(board), roles, "grey", "claim", LastRng(), trace, seer_results=False, cat="off", hunter="gidra", guard="medium",
+                     hunter_scenes=scenes, hunter_day=day, observer=lambda d, pb, ws, wp, t: seen.append((d, dict(pb.pinned), list(pb.gj))))
+            self.assertEqual(seen[1], (2, {"E": "狩人"}, ["J"]), (scenes, day))            # どちらの理由でも、護衛先 J が公開される
 
     def test_a_real_hunter_who_comes_out_after_a_fake_has_the_earlier_one_hanged(self):
         prep, roles = self._eleven(A="人狼", D="狩人", E="村人")
@@ -776,8 +822,9 @@ class MissingRoleProgressTest(unittest.TestCase):
     def test_a_dummy_hunter_means_no_guard(self):
         prep = self._prep()
         with_hunter, without = [], []
-        play(prep, self._roles(), "grey", "claim", FirstRng(), with_hunter, seer_results=False, cat="off", guard="medium")
-        play(prep, self._roles(G="村人", **{DUMMY: "狩人"}), "grey", "claim", FirstRng(), without, seer_results=False, cat="off", guard="medium")
+        with mock.patch("zinro_learn.progress.LEAVE_CLAIMANT", 0.0):                      # 名乗りを噛み続ける前提(残す噛み方は別に見る)
+            play(prep, self._roles(), "grey", "claim", FirstRng(), with_hunter, seer_results=False, cat="off", guard="medium")
+            play(prep, self._roles(G="村人", **{DUMMY: "狩人"}), "grey", "claim", FirstRng(), without, seer_results=False, cat="off", guard="medium")
         self.assertIn("guard", [t[0] for t in with_hunter])                              # 狩人が参加者にいれば、霊能 I への噛みを護衛が止める
         self.assertNotIn("guard", [t[0] for t in without])                               # 狩人が欠けていれば、護衛はない
 
@@ -885,6 +932,54 @@ class BiteAndGuardModeTest(unittest.TestCase):
         self.assertEqual(night, ("guard", "J"))
         night, _ = self._first_night("claim", guard="env", hunter="gidra", **hidden)               # 環境の護衛: 霊能 J(黒なし)を護衛。B を噛む: 噛まれる
         self.assertEqual(night, ("bite", "B"))
+
+
+class LeaveClaimantTest(unittest.TestCase):
+    """依頼者: 夜1は初日犠牲者を噛む日(ダミー)。夜2は占いか霊能のどちらかを噛む(まほろ噛み)。夜3に、噛まなかった方を噛むとは限らない。
+    どちらかが噛めた場合は、どちらかを残す方が寧ろ多い。"""
+
+    def _game(self):
+        board = Board(players=list("ABCDEFGHIJK"), roles=dict(ROLES_12A_NEKO), rco=True)
+        board.claims = [("A", "占い師"), ("B", "占い師"), ("K", "霊能者")]
+        roles = {"A": "占い師", "B": "人狼", "C": "村人", "D": "人狼", "E": "人狼", "F": "狂人", "G": "狩人", "H": "猫又", "I": "村人", "J": "村人", "K": "霊能者"}
+        return prepare(board), roles
+
+    def _bites(self, rng):
+        prep, roles = self._game()
+        trace: list = []
+        play(prep, roles, "grey", "claim", rng, trace, seer_results=False, cat="off")
+        return [t[1] for t in trace if t[0] == "bite"]
+
+    def test_the_first_bite_is_a_candidate_and_the_second_often_leaves_the_other_candidate(self):
+        bites = self._bites(FirstRng())                                                  # FirstRng の random() は 0.0: 残す側
+        self.assertEqual(bites[0], "A")                                                  # 夜2(依頼者の数え方)は候補 A
+        self.assertNotIn(bites[1], {"A", "B", "K"})                                      # 夜3は、残りの候補 K を残して、灰を噛む
+        bites = self._bites(LateRng())
+        self.assertEqual(bites[:2], ["A", "K"])                                          # 残さない側: 残りの候補 K を噛む
+
+    def test_the_stated_share_leaves_the_other_candidate_more_often_than_not(self):
+        self.assertTrue(0.5 < LEAVE_CLAIMANT < 1)                                        # 「寧ろ多い」。割合は仮
+
+    def test_before_a_candidate_has_died_the_wolves_always_bite_a_candidate(self):
+        with mock.patch("zinro_learn.progress.LEAVE_CLAIMANT", 1.0):
+            bites = self._bites(FirstRng())
+        self.assertEqual(bites[0], "A")                                                  # 候補が1人も死んでいない夜は、割合によらず候補を噛む
+        self.assertNotIn(bites[1], {"A", "B", "K"})                                      # 1 なら、あとはずっと残す
+
+    def test_leaving_the_candidates_helps_a_village_that_only_hangs_the_grey(self):
+        board = neko("ABC")
+        kept = win_rate(board, "grey", "claim", n=6000, seed=5, cat="off")["rate"]
+        with mock.patch("zinro_learn.progress.LEAVE_CLAIMANT", 0.0):
+            bitten_all = win_rate(board, "grey", "claim", n=6000, seed=5, cat="off")["rate"]
+        self.assertGreater(kept, bitten_all + 0.05)                                      # 名乗りが残ると、報告と結果が続いて、村に得
+        self.assertLess(bitten_all, 0.02)
+
+    def test_the_grey_bite_is_not_changed(self):
+        board = neko("AB")
+        with mock.patch("zinro_learn.progress.LEAVE_CLAIMANT", 0.0):
+            a = win_rate(board, "grey", "grey", n=2000, seed=3, cat="off")["rate"]
+        b = win_rate(board, "grey", "grey", n=2000, seed=3, cat="off")["rate"]
+        self.assertEqual(a, b)
 
 
 class PosteriorTest(unittest.TestCase):
@@ -1229,7 +1324,8 @@ class ComparisonTest(unittest.TestCase):
 
     def test_the_seer_roller_beats_grey_when_the_wolves_sit_among_the_seers(self):
         board = neko("ABC")
-        table = compare(board, n=6000, seed=4, cat="off")                   # 猫又の道連れは、別に確かめる
+        with mock.patch("zinro_learn.progress.LEAVE_CLAIMANT", 0.0):                      # 名乗りを残す噛み方は別に見る(LeaveClaimantTest)
+            table = compare(board, n=6000, seed=4, cat="off")               # 猫又の道連れは、別に確かめる
         grey, keep, stop = (table[("grey", p)]["rate"] for p in ("grey", "roll_keep", "roll_stop"))
         self.assertGreater(keep, grey + 0.05)
         self.assertGreater(stop, grey + 0.1)

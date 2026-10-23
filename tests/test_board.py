@@ -5,8 +5,8 @@ from itertools import permutations
 from pathlib import Path
 
 from zinro_learn.board import (
-    DUMMY, FAKE_BLACK_FIRST, FAKE_BLACK_FIRST_RANDOM_WHITE, FAKE_BLACK_LATER, REASON_MISSING, ROLES_10A_KARI, ROLES_12A_NEKO, SETUPS, Board, board_at, claim_patterns, confirmed,
-    enumerate_worlds, load_record, make_board, narrowing_wins, next_hang_line, marginals, pattern_label, patterns_text, result_factor, rope_slack, setup_roles,
+    DUMMY, FAKE_BLACK_FIRST, FAKE_BLACK_FIRST_RANDOM_WHITE, FAKE_BLACK_LATER, LATE_REAL, REASON_MISSING, ROLES_10A_KARI, ROLES_12A_NEKO, SETUPS, Board, board_at, claim_patterns, confirmed,
+    enumerate_worlds, late_factor, load_record, make_board, narrowing_wins, next_hang_line, marginals, pattern_label, patterns_text, result_factor, rope_slack, setup_roles,
     stage_report, type_shares, world_judgement,
     board_report, MISSING_TIER, domain,
 )
@@ -683,23 +683,72 @@ class MissingRoleTest(unittest.TestCase):
         real = sum(w.weight for w in enumerate_worlds(board) if w.assign[DUMMY] != "霊能者")
         self.assertLess(sum(w.weight for w in worlds), real * 0.01)                       # 霊が欠けた世界の重みは、ごく小さい
 
-    def test_a_late_claimant_is_never_the_real_role_because_the_real_one_claims_at_once(self):
-        """依頼者: 遅延霊は疑った方がいい。霊狂もあるが、どちらにしても人外。本物は一発言目に名乗る(rco)。"""
+    def late_medium_board(self, late_real=None):
         results = [dict(player="A", target="C", color="白"), dict(player="B", target="D", color="白")]
         board = make_board("10a-kari", 2, results)                                        # 霊能の名乗りは I
         board.late = ["I"]
-        self.assertEqual(domain(board, "I"), {"人狼", "狂人"})                            # 遅れて名乗った霊は、人外
-        self.assertEqual(domain(board, "A"), {"占い師", "人狼", "狂人"})                   # 遅れていない占いは、これまでどおり
+        if late_real is not None:
+            board.late_real = late_real
+        return board
+
+    def test_a_late_claimant_is_suspected_but_not_cut(self):
+        """依頼者: 遅延霊は疑った方がいい。霊狂もあるが、どちらにしても人外。遅延は人外目が上がる。完全に真切る訳じゃないけど、遅延というだけで真切り要素がある。"""
+        board = self.late_medium_board()
+        self.assertEqual(domain(board, "I"), {"霊能者", "人狼", "狂人"})                  # 外さない: 本物でもありうる
         worlds = enumerate_worlds(board)
+        self.assertTrue(any(w.assign["I"] == "霊能者" for w in worlds))
+        late = {p: sh for _, p, sh in type_shares(board, worlds)}["I"]
+        on_time = make_board("10a-kari", 2, [dict(player="A", target="C", color="白"), dict(player="B", target="D", color="白")])
+        normal = {p: sh for _, p, sh in type_shares(on_time, enumerate_worlds(on_time))}["I"]
+        self.assertGreater(normal["真"], 0.9)
+        self.assertGreater(late["真"], 0.05)                                              # 完全には切らない
+        self.assertLess(late["真"], 0.5)                                                  # 人外目の方が大きい(疑った方がいい)
+        self.assertGreater(late["狼"] + late["狂"], 0.5)
+        self.assertEqual(domain(board, "A"), {"占い師", "人狼", "狂人"})                   # 遅れていない占いは、これまでどおり
+
+    def test_the_late_weight_is_a_knob_from_cutting_the_claimant_to_ignoring_the_delay(self):
+        real = {}
+        for late_real in (0.0, 0.1, 0.3, 1.0):
+            board = self.late_medium_board(late_real)
+            real[late_real] = {p: sh for _, p, sh in type_shares(board, enumerate_worlds(board))}["I"]["真"]
+        self.assertEqual(real[0.0], 0.0)                                                  # 0: 人外に決める(これまでの置き方)
+        self.assertLess(real[0.0], real[0.1])
+        self.assertLess(real[0.1], real[0.3])
+        self.assertLess(real[0.3], real[1.0])
+        self.assertAlmostEqual(late_factor(self.late_medium_board(0.25), {"I": "霊能者"}), 0.25)
+        self.assertAlmostEqual(late_factor(self.late_medium_board(0.25), {"I": "人狼"}), 1.0)         # 人外の遅延には、かけない
+
+    def test_a_late_seer_is_treated_like_a_late_medium(self):
+        """依頼者: 遅延占いも、遅延霊と同じ(その通り)。"""
+        results = [dict(player="A", target="C", color="白"), dict(player="B", target="D", color="白")]
+        plain = make_board("10a-kari", 2, results)
+        late = make_board("10a-kari", 2, results)
+        late.late = ["B"]
+        shares = {p: sh for _, p, sh in type_shares(late, enumerate_worlds(late))}
+        base = {p: sh for _, p, sh in type_shares(plain, enumerate_worlds(plain))}
+        self.assertAlmostEqual(base["B"]["真"], base["A"]["真"], places=6)
+        self.assertLess(shares["B"]["真"], base["B"]["真"] * 0.5)                          # 遅れた占いは、本物らしさが下がる
+        self.assertGreater(shares["A"]["真"], base["A"]["真"])                            # その分、遅れていない占いが本物らしくなる
+        self.assertGreater(shares["B"]["真"], 0.0)
+
+    def test_late_means_nothing_when_the_real_ones_may_hide(self):
+        board = self.late_medium_board()
+        board.rco = False
+        self.assertEqual(late_factor(board, {"I": "霊能者"}), 1.0)                         # 潜伏がありうるなら、遅れは本物らしさを下げない
+
+    def test_when_every_claim_is_late_a_missing_role_is_not_made_rare(self):
+        """遅延COなら、本物がいない(初日犠牲者)ことが遅れの説明になるので、段階は下げない。"""
+        worlds = [w for w in enumerate_worlds(self.late_medium_board()) if w.assign[DUMMY] == "霊能者"]
         self.assertTrue(worlds)
         for w in worlds:
             self.assertIn(w.assign["I"], ("人狼", "狂人"))
-            self.assertEqual(w.assign[DUMMY], "霊能者")                                    # 本物の霊は、初日犠牲者にいる(名乗りに本物がいなければ、ほかにいない)
-            self.assertNotIn(REASON_MISSING["霊能者"], w.reasons)                          # 遅延COなら、霊が欠けているのは当たり前: 段階を下げない
+            self.assertNotIn(REASON_MISSING["霊能者"], w.reasons)
         self.assertGreaterEqual(min(w.tier for w in worlds), 2)
-        self.assertEqual({p: sh for _, p, sh in type_shares(board, worlds)}["I"]["真"], 0.0)
-        on_time = make_board("10a-kari", 2, results)
-        self.assertGreater({p: sh for _, p, sh in type_shares(on_time, enumerate_worlds(on_time))}["I"]["真"], 0.9)
+        mixed = self.late_medium_board()
+        mixed.claims.append(("H", "霊能者"))                                              # 遅れていない霊の名乗りが、もう1人いる
+        rare = [w for w in enumerate_worlds(mixed) if w.assign[DUMMY] == "霊能者"]
+        self.assertTrue(rare)
+        self.assertTrue(all(REASON_MISSING["霊能者"] in w.reasons and w.tier == 1 for w in rare))        # 遅れていない偽の霊がいれば、まれのまま
 
     def test_a_late_claim_can_be_written_in_a_record_and_is_shown_in_the_report(self):
         record = {"players": list("ABCDEFGHI"), "setup": "10a-kari", "rco": True, "stages": [{"name": "昼2"}],
@@ -707,7 +756,10 @@ class MissingRoleTest(unittest.TestCase):
                              {"stage": 0, "t": "co", "player": "I", "role": "霊能者", "late": True}]}
         board = board_at(record, 0)
         self.assertEqual(board.late, ["I"])
+        self.assertEqual(board.late_real, LATE_REAL)
         self.assertIn("I(遅延)", board_report(board, "昼2"))
+        record["late_real"] = 0.5
+        self.assertEqual(board_at(record, 0).late_real, 0.5)
 
     def test_a_real_seer_who_did_not_claim_is_still_excluded_by_rco(self):
         board = self.board()
