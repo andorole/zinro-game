@@ -532,6 +532,26 @@ class Log16BoardTest(unittest.TestCase):
         self.assertTrue(narrowing_wins(5, 1, 1, 0))                  # 確定黒を吊れば終わり
         self.assertFalse(narrowing_wins(11, 3, 0, 10))
 
+    def _grey_narrowing_board(self, players, roles, whites):
+        """占い A と霊能 B が名乗り(ロケットCOで、どちらも本物と決まる)、A が whites に白を出した盤面。"""
+        board = Board(players=list(players), roles=roles, rco=True)
+        board.claims = [("A", "占い師"), ("B", "霊能者")]
+        board.results = [dict(kind="占い", first=(i == 0), player="A", target=t, color="白") for i, t in enumerate(whites)]
+        return board
+
+    def test_the_report_warns_when_a_madman_hidden_among_the_whites_would_take_the_vote(self):
+        roles = {"人狼": 1, "狂人": 1, "占い師": 1, "霊能者": 1, "村人": 3}
+        text = board_report(self._grey_narrowing_board("ABCDEFG", roles, "CD"), "7人")
+        self.assertIn("灰 3 人(E・F・G)", text)
+        self.assertIn("勝ち確(灰詰めで足りる)。ただし、狂人が白の中に隠れて残っていると", text)               # 狂人を見なければ勝ち確。隠れた狂人の票を見ると、足りない
+        roomy = {"人狼": 1, "狂人": 1, "占い師": 1, "霊能者": 1, "村人": 5}
+        text = board_report(self._grey_narrowing_board("ABCDEFGHI", roomy, "CDEF"), "9人")
+        self.assertIn("勝ち確(灰詰めで足りる)。狂人が白の中に隠れて残っていても → 勝ち確", text)             # 人数に余裕があれば、隠れた狂人がいても勝ち確
+        plain = {"人狼": 1, "占い師": 1, "霊能者": 1, "村人": 4}
+        text = board_report(self._grey_narrowing_board("ABCDEFG", plain, "CD"), "狂人なし")
+        self.assertIn("勝ち確(灰詰めで足りる)", text)
+        self.assertNotIn("狂人が白の中", text)                                                         # 狂人がいない配役では、注意を付けない
+
     def test_a_madman_hidden_among_the_whites_takes_the_vote_when_the_wolf_side_reaches_the_villagers(self):
         """狂人は人間と数えるが、票は人狼に入れる(PP・RPP)。白の中に隠れて残っている狂人がいると、人外側(人狼 + 狂人)が村人以上になった昼に票を取られる。"""
         self.assertTrue(narrowing_wins(7, 1, 0, 3))                  # 狂人を見ない(盤面の報告の灰詰め): 外れ2回のあとに人狼を吊れば勝ち

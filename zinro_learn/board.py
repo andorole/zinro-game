@@ -646,6 +646,11 @@ def board_report(board: Board, name: str, truth: dict | None = None) -> str:
             continue
         ok = narrowing_wins(len(board.alive), w_alive, len(black), len(grey))
         verdict = "勝ち確(灰詰めで足りる)" if ok else "足りない(読みが要る)"
+        mad_left = board.roles.get("狂人", 0) > 0 and not all(any(w.assign.get(p) == "狂人" for p in board.dead) for w in main)         # 狂人が落ちたと確定していない
+        if ok and mad_left:
+            ok_mad = narrowing_wins(len(board.alive), w_alive, len(black), len(grey), hidden_mad=1)
+            verdict += ("。狂人が白の中に隠れて残っていても → 勝ち確" if ok_mad else
+                        "。ただし、狂人が白の中に隠れて残っていると、人外側(人狼 + 狂人)が村人以上になる昼に票を取られる(PP・RPP)ので、足りない")
         lines.append(
             f"灰詰め({TIER_NAME[top]}の世界。人狼 {w_alive}): 確定黒 {'・'.join(black) or 'なし'}、灰 {len(grey)} 人({'・'.join(grey) or 'なし'})。"
             f"確定黒を先に吊り、灰を端から吊ると、最悪の並びでも → {verdict}"
