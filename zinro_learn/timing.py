@@ -43,6 +43,7 @@ def _pairs(args) -> dict:
     board, policy, mode, arg, guard, cat, seed, indices = args
     prep = P.prepare(board)
     rows: dict[tuple[int, int], list[int]] = defaultdict(lambda: [0, 0, 0, 0, 0])      # (生存, 人狼) -> [試合数, 出る側の勝ち, 潜伏側の勝ち, 出る側だけ勝ち, 潜伏側だけ勝ち]
+    split: dict[bool, list[int]] = defaultdict(lambda: [0, 0, 0, 0, 0])                 # 占いが欠けている(ダミーが本物の占い)か -> 同じ並び
     common = dict(guard=guard, cat=cat, hunter="gidra")
     if mode == "day":
         alt_kw = dict(hunter_scenes=("指定",), hunter_day=arg)
@@ -62,21 +63,22 @@ def _pairs(args) -> dict:
             if not any(is_event(t) for t in trace):
                 continue
             hidden = P.play(prep, roles, policy, "claim", random.Random(base * 2 + 1), None, hunter_scenes=("指定",), **common)
-            row = rows[_state(board, roles, trace, is_event)]
-            row[0] += 1
-            row[1] += alt
-            row[2] += hidden
-            row[3] += alt and not hidden
-            row[4] += hidden and not alt
+            for row in (rows[_state(board, roles, trace, is_event)], split[roles.get(board.dummy) == "占い師"]):
+                row[0] += 1
+                row[1] += alt
+                row[2] += hidden
+                row[3] += alt and not hidden
+                row[4] += hidden and not alt
     finally:
         P.HUNTER_GJ_CO = saved
-    return {k: list(v) for k, v in rows.items()}
+    return {k: list(v) for k, v in rows.items()}, {k: list(v) for k, v in split.items()}
 
 
 def paired(board: Board, policy: str, mode: str, arg, n: int = 6000, guard: str | None = "env", cat: str = "gidra", seed: int = 1, workers: int = 1) -> dict:
     """mode が day なら、arg は昼の番号(自発で出る日)。scene なら、arg は場面(SCENES)。
     戻り値: {"games": 判断の朝が来た試合数, "alt": 出る側の勝ち, "base": 潜伏側の勝ち, "alt_only"・"base_only": 食い違った試合, "n": 全試合数,
-             "rows": {(生存, 人狼): [試合数, 出る側の勝ち, 潜伏側の勝ち, 出る側だけ勝ち, 潜伏側だけ勝ち]}}"""
+             "rows": {(生存, 人狼): [試合数, 出る側の勝ち, 潜伏側の勝ち, 出る側だけ勝ち, 潜伏側だけ勝ち]},
+             "split": {占いが欠けている(役欠けで、ダミーが本物の占い)か: 同じ並び}}"""
     if mode not in MODES:
         raise ValueError(f"知らない比べ方: {mode}")
     if mode == "day" and not (isinstance(arg, int) and arg >= 1):
@@ -91,17 +93,29 @@ def paired(board: Board, policy: str, mode: str, arg, n: int = 6000, guard: str 
         with ProcessPoolExecutor(max_workers=workers, mp_context=multiprocessing.get_context("fork")) as pool:
             results = list(pool.map(_pairs, jobs))
     rows: dict[tuple[int, int], list[int]] = defaultdict(lambda: [0, 0, 0, 0, 0])
-    for result in results:
-        for key, value in result.items():
+    split: dict[bool, list[int]] = defaultdict(lambda: [0, 0, 0, 0, 0])
+    for by_state, by_missing in results:
+        for key, value in by_state.items():
             for j in range(5):
                 rows[key][j] += value[j]
+        for key, value in by_missing.items():
+            for j in range(5):
+                split[key][j] += value[j]
     return {"games": sum(v[0] for v in rows.values()), "alt": sum(v[1] for v in rows.values()), "base": sum(v[2] for v in rows.values()),
-            "alt_only": sum(v[3] for v in rows.values()), "base_only": sum(v[4] for v in rows.values()), "n": n, "rows": {k: list(v) for k, v in rows.items()}}
+            "alt_only": sum(v[3] for v in rows.values()), "base_only": sum(v[4] for v in rows.values()), "n": n, "rows": {k: list(v) for k, v in rows.items()},
+            "split": {k: list(v) for k, v in split.items()}}
 
 
 def diff(result: dict) -> float | None:
     """出る側 − 潜伏側(勝率の差。判断の朝が来た試合がなければ None)。"""
     return (result["alt"] - result["base"]) / result["games"] if result["games"] else None
+
+
+def split_result(result: dict, seer_missing: bool) -> dict:
+    """占いが欠けている世界(役欠けで、ダミーが本物の占い)だけ、またはそうでない世界だけを取り出した結果(diff・stderr に渡せる形)。
+    占いが欠けていると、占いの名乗りは全員偽なので、「ほかの占いの名乗りが全員偽と分かった=残る占いが本物」という決め打ちが外れる。"""
+    games, alt, base, alt_only, base_only = result.get("split", {}).get(seer_missing, [0, 0, 0, 0, 0])
+    return {"games": games, "alt": alt, "base": base, "alt_only": alt_only, "base_only": base_only, "n": result["n"], "rows": {}, "split": {}}
 
 
 def stderr(result: dict) -> float | None:
