@@ -731,6 +731,10 @@ class HunterGidraTest(unittest.TestCase):
             main(["progress", "--seers", "2", "--n", "300", "--bites", "claim", "--hunter-scenes", "指定", "--hunter-day", "2"])
         self.assertIn("狩人の場面は指定だけ", out.getvalue())
         self.assertIn("狩人は昼2の朝に自発で名乗る", out.getvalue())
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            main(["progress", "--seers", "3", "--n", "200", "--bites", "claim", "--hunter-scenes", "指定", "詰み", "狩ロラ"])
+        self.assertIn("狩人の場面は指定・詰み・狩ロラだけ", out.getvalue())                 # 狩人ロラの場面も選べる
         with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
             main(["progress", "--seers", "2", "--hunter-scenes", "夜"])
 
