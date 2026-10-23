@@ -83,7 +83,7 @@ class PairedTimingTest(unittest.TestCase):
 
     def test_the_text_lists_every_policy_and_marks_rare_scenes(self):
         text = timing_text(neko(2), "12A猫・2-1", ("grey", "roll"), days=(1, 2), n=600)
-        for word in ("12A猫・2-1", "グレー", "ロラ完遂", "自発", "場面", "—"):
+        for word in ("12A猫・2-1", "グレー", "ロラ完遂", "自発", "場面", "—", "占いが欠けていない世界 → 欠けている世界", "狩人ロラの朝"):
             self.assertIn(word, text)
 
     def test_the_command_line_runs_and_hides_the_hunter_options(self):

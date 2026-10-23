@@ -1061,6 +1061,20 @@ class HunterEndgameTest(unittest.TestCase):
         self.assertEqual([t[:3] for t in trace if t[0] in ("hunter", "fakehunter")], [("hunter", "I", "詰み"), ("fakehunter", "J", "狩ロラ")])
         self.assertTrue(won)
 
+    def test_a_designated_hunter_in_that_state_also_draws_the_counter_and_the_village_rolls_that_day(self):
+        """指定されて出た狩人でも、狼と狂が落ちたと確定していれば、対抗が出る。その日のうちに、名乗った2人から吊る。"""
+
+        class PickHunter(FirstRng):
+            def choice(self, seq):
+                return "I" if list(seq) == ["H", "I", "J"] else seq[0]                    # 昼4の灰の吊り先だけ、狩人 I を選ぶ(指定される)
+
+        trace, won = self._play(PickHunter(), scenes=("指定",))
+        kinds = [t[:3] for t in trace]
+        start = kinds.index(("hunter", "I", "指定"))
+        self.assertEqual(kinds[start + 1], ("fakehunter", "J", "狩ロラ"))                  # 対抗の人狼 J が出る
+        self.assertIn(kinds[start + 2][1], {"I", "J"})                                      # その日の吊り先は、名乗った2人のどちらか(灰の H ではない)
+        self.assertNotIn(("hang", "H", "人間"), kinds[start:start + 3])
+
     def test_the_scene_and_the_counter_can_each_be_switched_off(self):
         with mock.patch("zinro_learn.progress.ROLL_COUNTER", 0.0):
             trace, _ = self._play()

@@ -137,10 +137,18 @@ def timing_text(board: Board, title: str, policies, days=(1, 2, 3, 4), n: int = 
             return "—"
         return f"{d * 100:+.1f}" + (f"({result['games'] / result['n'] * 100:.0f}%)" if share else "")
 
+    def split_cell(result: dict, missing: bool) -> str:
+        part = split_result(result, missing)
+        d = diff(part)
+        return "—" if d is None or part["games"] < min(30, min_games) else f"{d * 100:+.1f}({part['games']}試合)"
+
     lines = [f"{title}(出る側 − 潜伏のまま=指定されたら出る。点。{n} 回ずつ。かっこ内は、その朝が来る試合の割合。—は {min_games} 試合未満)"]
     lines.append("  自発で出る日: " + " / ".join(f"昼{d}" for d in days) + "    場面: " + " / ".join(SCENE_NAME[s] for s in SCENES))
     for policy in policies:
         by_day = [cell(paired(board, policy, "day", d, n, guard, cat, seed, workers), False) for d in days]
-        by_scene = [cell(paired(board, policy, "scene", s, n, guard, cat, seed, workers), True) for s in SCENES]
+        results = {s: paired(board, policy, "scene", s, n, guard, cat, seed, workers) for s in SCENES}
+        by_scene = [cell(results[s], True) for s in SCENES]
         lines.append(f"  {P.POLICY_NAME[policy]}: 自発 " + " / ".join(by_day) + " | 場面 " + " / ".join(by_scene))
+        lines.append("    占いが欠けていない世界 → 欠けている世界(詰む朝・狩人ロラの朝): "
+                     + " / ".join(f"{SCENE_NAME[s]} {split_cell(results[s], False)} → {split_cell(results[s], True)}" for s in ("詰み", "狩ロラ")))
     return "\n".join(lines)
