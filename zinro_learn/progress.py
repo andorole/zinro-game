@@ -82,11 +82,13 @@
     明日が最終日というとき、狩人が出てグレーをロラで終わる): ロケットCOの盤面では、ほかの占いの名乗りが全員偽と分かった(霊能の報告と食い違った、または
     吊られて黒と出た)占いが決まってから数える。その占いの白黒だけを信じ、その占いと霊能(霊を真とし)は、灰に数えない。確定していない名乗りは、灰に数える。
     狂人が落ちたと確定していなければ、白の中に隠れて残っているとして数える(票は人狼に入るので、人外側が村人以上になる昼に、票を取られる。PP・RPP)。
+    狼と狂が落ちたと確定していて、縄に余裕がない(外せる回数が 0)ときは、出ない(出ると対抗が出て、狩人ロラで本物を先に吊ると、負けるため)。
   - 狩人ロラ(HUNTER_ROLL_CO。依頼者: 人外が狼と狂が1ずつ落ちていると確定しているとき、狩COがあれば、対抗として出る。そうすると狩人ロラで終わる。
     実際にそういう場面が来る): 本物の占いが決まり(ほかの占いの名乗りは全員偽と分かった)、偽の占いのうち、人狼でない人(吊られて白、または噛まれた=狂人)が
     死んでいて、人狼も吊られて黒と出ているとき、名乗る。狩COがあったときは(出た理由によらず)、ROLL_COUNTER の割合で、残りの人狼のうち1人が、
     対抗の狩人として出る。村は、狩人の名乗りを(偽目を読まずに)吊っていく(狩人ロラ)。偽が黒と出れば、残る狩人は本物と分かって止まる。吊られた(または
-    噛まれた)方が白なら、残る方が人狼なので吊る。
+    噛まれた)方が白なら、残る方が人狼なので吊る。狩人が自分から出るのは、縄に余裕があるとき(外せる回数が 1 以上。本物を先に吊ってしまっても、次の日に
+    人狼を吊れる)だけ。指定されて出るときは、縄によらず、対抗が出る。
   - 護衛が成功した(GJ)あとの昼にも露出することがある(HUNTER_GJ_CO。依頼者が前に言った「GJがあった時も露出する事ある」。ただし、最新の答えは
     「基本的には指示されたら」なので、割合は小さい。仮)。
   - 自発(hunter_day): 指定されなくても、昼 N の朝に出る形。標準では使わない。出るタイミングの比較のためにある(依頼者: 出るタイミングで、どこが有効で、
@@ -130,7 +132,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from itertools import accumulate
 
-from .board import FAKE_BLACK_LATER, Board, World, enumerate_worlds, marginals, narrowing_wins, pattern_label
+from .board import FAKE_BLACK_LATER, Board, World, enumerate_worlds, marginals, narrowing_wins, pattern_label, rope_slack
 
 ENCLOSE_NEXT = 0.5               # 仮。偽の人狼が、次手(夜1の結果)で、灰の仲間に白を出す(囲う)割合
 OPEN_CAT_BITE = 0.2              # 仮。名乗っている猫又を、人狼2人・夜に6人のときに、狼が噛む割合(依頼者: たまに噛む。最近はあまり噛まない)
@@ -501,7 +503,9 @@ def play(prep: Prepared, roles: dict[str, str], policy: str, bite: str, rng: ran
             else:
                 sure_white, sure_black = safe, alive_blacks
             greys_now = [q for q in alive if q not in sure_black and q not in sure_white and q not in held_now and q not in trusted]       # 灰詰めの数え方(占い師視点。盤面の報告と同じ): 霊能(霊を真とし)と、決め打ちが勝った占いは、灰に数えない。確定していない名乗りは、灰に数える
-            if "詰み" in scenes and real_hunter in greys_now and (real_seer is not None or not (board.rco and prep.seers)):
+            roll_ready = roll_state()                              # 狼と狂が落ちたと確定している: 狩COには対抗が出て、村は狩人ロラをする
+            roll_safe = rope_slack(len(alive), counts()[0]) >= 1   # 狩人ロラで、本物を先に吊ってしまっても(外れ1回)、縄が足りる
+            if "詰み" in scenes and real_hunter in greys_now and (real_seer is not None or not (board.rco and prep.seers)) and (roll_safe or not roll_ready):
                 wolves_left = counts()[0]
                 hidden_mad = 1 if board.roles.get("狂人", 0) and not madman_fallen() else 0         # 狂人が落ちたと確定していなければ、白の中に隠れて残っているとして数える(人外側の票が過半数になると、票を取られる)
 
@@ -510,7 +514,7 @@ def play(prep: Prepared, roles: dict[str, str], policy: str, bite: str, rng: ran
 
                 if not wins_with(len(greys_now)) and wins_with(len(greys_now) - 1) and rng.random() < HUNTER_NARROW_CO:
                     why = "詰み"                                   # グレーが狭まったら詰む時: 自分が灰から抜けると、灰詰めが成り立つので、出る(依頼者)
-            if why is None and "狩ロラ" in scenes and roll_state() and rng.random() < HUNTER_ROLL_CO:
+            if why is None and "狩ロラ" in scenes and roll_ready and roll_safe and rng.random() < HUNTER_ROLL_CO:
                 why = "狩ロラ"                                     # 狼と狂が落ちたと確定: 狩COに対抗が出て、狩人ロラで終わる(依頼者)
             if why is None and "GJ" in scenes and gj_morning and rng.random() < HUNTER_GJ_CO:
                 why = "GJ"                                         # 護衛が成功したあとの昼に、露出する(依頼者)

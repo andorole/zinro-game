@@ -1075,6 +1075,15 @@ class HunterEndgameTest(unittest.TestCase):
         self.assertIn(kinds[start + 2][1], {"I", "J"})                                      # その日の吊り先は、名乗った2人のどちらか(灰の H ではない)
         self.assertNotIn(("hang", "H", "人間"), kinds[start:start + 3])
 
+    def test_the_hunter_does_not_come_out_into_a_roll_he_cannot_afford(self):
+        """縄に余裕がない(外せる回数が 0)と、出て対抗が出ても、狩人ロラで本物を先に吊ったときに負ける。だから、自分からは出ない(指定されたときは別)。"""
+        with mock.patch("zinro_learn.progress.rope_slack", lambda alive, wolves: 0):
+            for scenes in (("狩ロラ",), ("詰み",)):
+                trace, _ = self._play(scenes=scenes)
+                self.assertNotIn("hunter", [t[0] for t in trace], scenes)
+        trace, _ = self._play(scenes=("狩ロラ",))
+        self.assertIn(("hunter", "I", "狩ロラ"), [t[:3] for t in trace])                          # 縄に余裕があれば(外せる回数 1)、出る
+
     def test_the_scene_and_the_counter_can_each_be_switched_off(self):
         with mock.patch("zinro_learn.progress.ROLL_COUNTER", 0.0):
             trace, _ = self._play()
