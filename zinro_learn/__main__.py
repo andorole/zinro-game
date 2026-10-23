@@ -185,7 +185,7 @@ def add_board_options(p) -> None:
                    help="猫又の扱い: off=力を数えない、hidden=隠れている、open=名乗っていて吊らず噛まない、counter=名乗り、対抗猫が出る(猫吊り)、"
                         "gidra=隠れていて、黒を刺されたら・指定されたら名乗る(12A猫の既定。猫又のいない配役は off)")
     p.add_argument("--hunter", choices=HUNTERS, default="gidra",
-                   help="狩人の狩CO(ギドラ): gidra=吊りを指定された狩人が名乗る(既定。10A狩・11A は必ず=依頼者: 当然狩CO。12A猫は GIDRA_HUNTER の割合=依頼者: 場合あり。仮)、off=名乗らない、fake=gidra に加えて、昼1の指定で人外が偽の狩人を名乗る(仮の割合)")
+                   help="狩人の狩CO(ギドラ): gidra=吊りを指定された狩人が名乗る(既定。10A狩・11A は必ず=依頼者: 当然狩CO。12A猫は GIDRA_HUNTER の割合=依頼者: 場合あり。仮)。そのほか、黒を出されたとき・グレーが狭まって詰むとき(依頼者の答え)・GJのあとにも名乗る、off=名乗らない、fake=gidra に加えて、昼1の指定で人外が偽の狩人を名乗る(仮の割合)")
     p.add_argument("--no-reads", action="store_true", help="村の読みを入れない(霊能の報告で偽の占いを見抜く動きなし。11A のメモと同じ前提)")
     p.add_argument("--seers-first", action="store_true", help="占い吊り優先: 占いの名乗りを先に吊り、黒先は占いを吊り終えてから(標準は先黒吊り)")
     p.add_argument("--no-rpp", action="store_true", help="同数のときの票(人外側の PP・RPP)を入れない(11A のメモと同じ前提)")
