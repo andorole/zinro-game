@@ -723,6 +723,15 @@ class HunterGidraTest(unittest.TestCase):
                      hunter_scenes=scenes, hunter_day=day, observer=lambda d, pb, ws, wp, t: seen.append((d, dict(pb.pinned), list(pb.gj))))
             self.assertEqual(seen[1], (2, {"E": "狩人"}, ["J"]), (scenes, day))            # どちらの理由でも、護衛先 J が公開される
 
+    def test_the_command_line_takes_the_hunter_scenes_and_the_voluntary_day(self):
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            main(["progress", "--seers", "2", "--n", "300", "--bites", "claim", "--hunter-scenes", "指定", "--hunter-day", "2"])
+        self.assertIn("狩人の場面は指定だけ", out.getvalue())
+        self.assertIn("狩人は昼2の朝に自発で名乗る", out.getvalue())
+        with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
+            main(["progress", "--seers", "2", "--hunter-scenes", "夜"])
+
     def test_a_real_hunter_who_comes_out_after_a_fake_has_the_earlier_one_hanged(self):
         prep, roles = self._eleven(A="人狼", D="狩人", E="村人")
         with mock.patch("zinro_learn.progress.HUNTER_COUNTER", 0.0), mock.patch("zinro_learn.progress.HUNTER_BITE", 0.0), \
