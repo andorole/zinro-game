@@ -532,6 +532,19 @@ class Log16BoardTest(unittest.TestCase):
         self.assertTrue(narrowing_wins(5, 1, 1, 0))                  # 確定黒を吊れば終わり
         self.assertFalse(narrowing_wins(11, 3, 0, 10))
 
+    def test_a_madman_hidden_among_the_whites_takes_the_vote_when_the_wolf_side_reaches_the_villagers(self):
+        """狂人は人間と数えるが、票は人狼に入れる(PP・RPP)。白の中に隠れて残っている狂人がいると、人外側(人狼 + 狂人)が村人以上になった昼に票を取られる。"""
+        self.assertTrue(narrowing_wins(7, 1, 0, 3))                  # 狂人を見ない(盤面の報告の灰詰め): 外れ2回のあとに人狼を吊れば勝ち
+        self.assertFalse(narrowing_wins(7, 1, 0, 3, hidden_mad=1))   # 狂人が白の中にいると、3日目の昼は人外側2・村人1: 票を取られる
+        self.assertTrue(narrowing_wins(9, 1, 0, 2, hidden_mad=1))    # 外れ1回のあとに人狼を吊れる(2日目の昼は人外側2・村人5)
+        self.assertTrue(narrowing_wins(5, 1, 1, 0, hidden_mad=1))    # 確定黒を吊れば終わり(昼1は人外側2・村人3)
+        self.assertEqual([narrowing_wins(n, 2, 0, g) for n, g in ((8, 4), (7, 4), (6, 3))],
+                         [narrowing_wins(n, 2, 0, g, hidden_mad=0) for n, g in ((8, 4), (7, 4), (6, 3))])      # 0 は従来どおり
+        for alive in range(5, 14):
+            for greys in range(0, 8):
+                if narrowing_wins(alive, 2, 0, greys, hidden_mad=1):
+                    self.assertTrue(narrowing_wins(alive, 2, 0, greys), (alive, greys))                    # 狂人を数えて勝ち確なら、数えなくても勝ち確
+
 
 class SetupAndRandomWhiteTest(unittest.TestCase):
     """10A狩・11A(依頼者: 比較的簡単な配役。人狼online では、基本的に初日に白が出る環境=白ランオンでやる)。"""

@@ -9,7 +9,7 @@
 
 比べ方:
 - day: 指定されなくても、昼 N の朝に名乗る(自発)側と、指定されたときだけ名乗る側。
-- scene: 場面(黒を出された朝・グレーが狭まって詰む朝・GJのあとの朝)で名乗る側と、指定されたときだけ名乗る側。
+- scene: 場面(黒を出された朝・グレーが狭まって詰む朝・狼と狂が落ちて狩人ロラに持ち込める朝・GJのあとの朝)で名乗る側と、指定されたときだけ名乗る側。
   GJ は、GJのあとの朝すべてに出る側に倒して比べる(標準の割合 HUNTER_GJ_CO は小さいので、そのままだと試合が少ない)。
 """
 from __future__ import annotations
@@ -22,8 +22,9 @@ from concurrent.futures import ProcessPoolExecutor
 from . import progress as P
 from .board import Board
 
-SCENES = ("黒", "詰み", "GJ")
+SCENES = ("黒", "詰み", "狩ロラ", "GJ")
 MODES = ("day", "scene")
+SCENE_NAME = {"黒": "黒を出された朝", "詰み": "詰む朝", "狩ロラ": "狩ロラの朝", "GJ": "GJのあとの朝"}
 
 
 def _state(board: Board, roles: dict[str, str], trace: list, is_event) -> tuple[int, int]:
@@ -123,7 +124,7 @@ def timing_text(board: Board, title: str, policies, days=(1, 2, 3, 4), n: int = 
         return f"{d * 100:+.1f}" + (f"({result['games'] / result['n'] * 100:.0f}%)" if share else "")
 
     lines = [f"{title}(出る側 − 潜伏のまま=指定されたら出る。点。{n} 回ずつ。かっこ内は、その朝が来る試合の割合。—は {min_games} 試合未満)"]
-    lines.append("  自発で出る日: " + " / ".join(f"昼{d}" for d in days) + "    場面: " + " / ".join(("黒を出された朝", "詰む朝", "GJのあとの朝")))
+    lines.append("  自発で出る日: " + " / ".join(f"昼{d}" for d in days) + "    場面: " + " / ".join(SCENE_NAME[s] for s in SCENES))
     for policy in policies:
         by_day = [cell(paired(board, policy, "day", d, n, guard, cat, seed, workers), False) for d in days]
         by_scene = [cell(paired(board, policy, "scene", s, n, guard, cat, seed, workers), True) for s in SCENES]

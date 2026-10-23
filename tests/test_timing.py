@@ -57,7 +57,7 @@ class PairedTimingTest(unittest.TestCase):
             paired(neko(2), "grey", "scene", "夜", 10)
         with self.assertRaises(ValueError):
             paired(neko(2), "grey", "day", 0, 10)
-        self.assertEqual(SCENES, ("黒", "詰み", "GJ"))
+        self.assertEqual(SCENES, ("黒", "詰み", "狩ロラ", "GJ"))
 
     def test_diff_and_stderr_are_none_without_a_decision_morning(self):
         empty = {"games": 0, "alt": 0, "base": 0, "alt_only": 0, "base_only": 0, "n": 10, "rows": {}}

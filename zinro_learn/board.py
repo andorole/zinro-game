@@ -487,14 +487,19 @@ def rope_slack(alive: int, wolves: int) -> int:
     return slack
 
 
-def narrowing_wins(alive: int, wolves: int, known_black: int, greys: int) -> bool:
+def narrowing_wins(alive: int, wolves: int, known_black: int, greys: int, hidden_mad: int = 0) -> bool:
     """確定した黒を先に吊り、そのあと灰を端から吊っていけば、人狼を吊りきれるか。
     灰の中の人狼が、いちばん最後に固まっている最悪の並びでも、人狼の勝ちにならないなら True(灰詰めで、村の勝ち確)。
-    夜は毎回、襲撃で1人減る(護衛の成功は数えない)。"""
+    夜は毎回、襲撃で1人減る(護衛の成功は数えない)。
+    hidden_mad は、白の中に隠れていて吊れない狂人の数(0 か 1。いちばん悪い置き方)。狂人は人間と数えるが、票は人狼に入れる(PP・RPP)。
+    昼の投票の前に、人外側(人狼 + 狂人)が村人以上になっていたら、票を取られる(同数は抽選なので、勝ち確とは言えない)ので False。
+    0 のときは、狂人を見ない(盤面の報告の灰詰めは、これ)。"""
     n, w = alive, wolves
     misses = max(0, greys - max(0, w - known_black))            # 灰のうち、人狼でない人の数
     plan = [True] * known_black + [False] * misses + [True] * max(0, w - known_black)
     for hit in plan:
+        if hidden_mad and w > 0 and w + hidden_mad >= n - (w + hidden_mad):
+            return False
         n -= 1
         if hit:
             w -= 1
