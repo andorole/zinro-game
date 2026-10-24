@@ -552,6 +552,13 @@ class Log16BoardTest(unittest.TestCase):
         self.assertIn("勝ち確(灰詰めで足りる)", text)
         self.assertNotIn("狂人が白の中", text)                                                         # 狂人がいない配役では、注意を付けない
 
+    def test_the_users_example_of_the_grey_roll_that_the_hunter_finishes(self):
+        """依頼者の例: 占白白灰灰灰(6人日)で灰に狩人がいる。灰から狩人COが出たら、灰ロラで終わる(詰む朝は、大体7人か6人日の昼)。"""
+        self.assertFalse(narrowing_wins(6, 1, 0, 3))                 # 灰3人(狩人を含む): 外れが続くと足りない
+        self.assertTrue(narrowing_wins(6, 1, 0, 2))                  # 狩人が灰から抜けて灰2人: ロラで終わる
+        self.assertFalse(narrowing_wins(7, 1, 0, 4))
+        self.assertTrue(narrowing_wins(7, 1, 0, 3))                  # 7人日も同じ形: 灰が1人減って、足りる
+
     def test_a_madman_hidden_among_the_whites_takes_the_vote_when_the_wolf_side_reaches_the_villagers(self):
         """狂人は人間と数えるが、票は人狼に入れる(PP・RPP)。白の中に隠れて残っている狂人がいると、人外側(人狼 + 狂人)が村人以上になった昼に票を取られる。"""
         self.assertTrue(narrowing_wins(7, 1, 0, 3))                  # 狂人を見ない(盤面の報告の灰詰め): 外れ2回のあとに人狼を吊れば勝ち
