@@ -96,7 +96,8 @@
     出るのは、指定されたとき)。指定されて出るときは、縄によらず、対抗が出る。
   - 自発の対抗(HUNTER_COUNTER_FREE。依頼者: 狩が出た場合に、対抗として出るのは、自発的の場合もかなりある。その場合は狩人ロラになる): 本物の狩人が名乗ったあと、
     狼と狂が落ちたと確定していなくても、HUNTER_COUNTER_FREE の割合で、占いも猫も名乗っていない人狼(COUNTER_HUNTER_WOLF の割合)か狂人が、対抗の狩人として出る。
-    名乗った2人は、下の「2人の狩人が名乗ったら」の吊り方で吊る(本物が先に名乗っているので、先に名乗った方が吊られやすいと、本物が吊られやすい)。
+    その場合は狩人ロラ(依頼者): 名乗った狩人を、先に名乗った方から吊っていく(本物が先に名乗っているので、本物が吊られやすい)。偽が黒と出れば、残る狩人は本物と分かって止まる。
+    吊られた方が白なら(本物か、偽の狂人)、残る方を吊る。放置はしない(HUNTER_PAIR_WAIT は、偽の狩人が先に出た形の、2人のときだけ)。
   - 護衛が成功した(GJ)あとの昼にも露出することがある(HUNTER_GJ_CO。依頼者が前に言った「GJがあった時も露出する事ある」。ただし、最新の答えは
     「基本的には指示されたら」なので、割合は小さい。仮)。
   - 自発(hunter_day): 指定されなくても、昼 N の朝に出る形。標準では使わない。出るタイミングの比較のためにある(依頼者: 出るタイミングで、どこが有効で、
@@ -430,6 +431,7 @@ def play(prep: Prepared, roles: dict[str, str], policy: str, bite: str, rng: ran
                 fake = pick_fake_hunter(roles, alive, claimants, rng, {fake_cat} if fake_out and fake_cat else set())       # 偽の猫を名乗っている人は、重ねて名乗らない
                 if fake is not None:
                     hunter_out.append(fake)
+                    hunter_roll = True                                    # その場合は狩人ロラ(依頼者): 名乗った狩人を吊っていく。偽が黒と出れば、残る狩人は本物と分かって止まる
                     if trace is not None:
                         trace.append(("fakehunter", fake, "自発"))
 

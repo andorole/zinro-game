@@ -1186,6 +1186,18 @@ class HunterFreeCounterTest(unittest.TestCase):
         self.assertEqual(kinds[:2], [("hunter", "A", "指定"), ("fakehunter", "E", "自発")])        # 人狼 E が、自発で対抗に出る
         self.assertEqual(kinds[2], ("hang", "A", "人間"))                                         # 先に名乗った(本物の)A が、吊られやすい(依頼者)
 
+    def test_the_pair_becomes_a_hunter_roll_and_the_second_claimant_is_hanged_next(self):
+        """依頼者: その場合は狩人ロラになる。先に吊られた方が白なら、残る方も吊る(残った名乗りを、ほかに候補があるあいだ守り続けない)。"""
+        trace = self._play(FirstRng())
+        hangs = [t[:3] for t in trace if t[0] == "hang"]
+        self.assertEqual(hangs[:2], [("hang", "A", "人間"), ("hang", "E", "人狼")])              # 1日目に本物の A、2日目に残る名乗りの E
+
+    def test_the_roll_stops_when_the_fake_is_found_black(self):
+        trace = self._play(FirstRng(), HUNTER_PAIR_FIRST=0.0, HUNTER_PAIR_READ=1.0)             # 偽の E を先に吊る
+        hangs = [t[:3] for t in trace if t[0] == "hang"]
+        self.assertEqual(hangs[0], ("hang", "E", "人狼"))
+        self.assertNotIn("A", [h[1] for h in hangs[:4]])                                          # E が黒と出れば、残る A は本物と分かって、吊られない
+
     def test_the_village_can_read_the_fake_and_hang_the_counter(self):
         trace = self._play(FirstRng(), HUNTER_PAIR_FIRST=0.0, HUNTER_PAIR_READ=1.0)
         kinds = [t[:3] for t in trace]
