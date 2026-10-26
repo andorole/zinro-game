@@ -22,14 +22,14 @@
 | `logs/raw/<id>.txt` | 貼り付けた生ログ | 管理外 |
 | `logs/normalized/<id>.json` | 時系列に直し、名前を A, B, C に置き換えたもの | 管理外 |
 | `logs/private/<id>.players.json` | 匿名名と実名の対応 | 管理外 |
-| `zinro_learn/` | 取り込み(`parse.py`。人狼の「仲間」の通知と夜チャットも読む)・役職・夜の行動・通知・死亡の読み取り(`roles.py`)・盤面整理(`board.py`。公開された情報に合う役職の割り当て、確定した黒白、縄、灰詰め[隠れた狂人の票も併記]、初手の結果の癖を入れた、名乗った人の種類の見込み)・進行の比較(`progress.py`。占いロラ・グレランなどの、村の勝率の試算。占いの夜の結果・狼の噛み方・狩人の護衛と狩人のギドラ・猫又の道連れと対抗猫・同数のときの票(RPP)を選べる。毎朝、盤面を数え直して人狼の見込みがいちばん高い人を吊る進行[尤度吊り]もある)・昼ごとの盤面の出力(`playout.py`。昼1・昼2・昼3・昼4の盤面と人狼の見込み、吊り先)・狩人が出るタイミングの比較(`timing.py`。自発で出る日・場面で出る側と、指定されたときだけ出る側を、同じ試合の途中から二手に分けて比べる)・統計(`analyze.py`。議論が2日以上のログは、日ごとの内訳も出す)・整合性チェックと型の表の同期(`check.py`)・連投と返信の型の集計(`structure.py`) | 管理 |
+| `zinro_learn/` | 取り込み(`parse.py`)・役職と夜の行動の読み取り(`roles.py`)・盤面整理(`board.py`)・進行の比較(`progress.py`)・昼ごとの盤面(`playout.py`)・狩人が出るタイミングの比較(`timing.py`)・統計(`analyze.py`)・整合性チェックと型の表の同期(`check.py`)・連投と返信の型の集計(`structure.py`)。それぞれの先頭の説明に、作りと、依頼者の答え、仮の数字が書いてある | 管理 |
 | `knowledge/discussion_style.md` | 議論の型・長さ・語彙と、プロンプト用の要約 | 管理 |
 | `knowledge/playbook.md` | 立ち回りの観察 | 管理 |
 | `knowledge/reply_structure.md` | 返信の構造(連投、複数への返信、遅れた返信、返さない発言)と、設計メモ | 管理 |
 | `knowledge/examples.jsonl` | 局面ごとの発言例(標準語に言い換えたもの) | 管理 |
 | `knowledge/bot_prompt.md` | ボットへの指示(守ること、手順、局面別、出力形式)。調査結果を指示の形に直したもの。占いなしの4A・5A が前提 | 管理 |
-| `knowledge/board_12a.md` | 盤面整理(12A猫)のメモ。依頼者に聞いた環境(2-1 は真狼-真が定番、3-1 は真狂狼 7.5 : 真狼狼 2.5、霊はだいたい真、初手の対抗白は8割偽目、初手の黒は真目で3-1 の対抗黒は結構真目)、盤面整理の手順、結果の出し方の癖、11A のメモとの関係、名乗りの数ごとの可能性、縄と灰詰め、役欠け(初日犠牲者は人狼以外のどれか)、進行の比較(猫又・狩人のギドラ)、昼2〜昼4の盤面と尤度吊り、狼の噛み先(占いか霊能の候補だけ)と護衛、狩人のCO(指定されたとき・黒を出されたとき・グレーが狭まって詰むとき・狼と狂が落ちて狩人ロラに持ち込めるとき・GJのあとに露出する)、狩人が出るタイミング(出る・ギドラ・潜伏の比較)、遅延COの扱い(噛まれ率は霊1.5倍・占い1.1〜1.2倍)、占い・霊は強制RCO(黒飼い進行がなく、潜伏の利が少ないため)、噛まれたあとの読み、log17 の盤面の動き、確認したいこと | 管理 |
-| `knowledge/board_10a_11a.md` | 盤面整理(10A狩・11A)のメモ。比較的簡単な配役で、人狼online では基本的に白ランオン(初日に白が出る環境。本物の占い師の初日の結果は無作為な白)でやる、という依頼者の話。白ランオンの扱い(初日の黒は偽の証拠)、名乗りの数ごとの可能性、進行の比較(グレー・占いロラ・黒スト・ロラ完遂)の試算、昼2〜昼4の盤面と尤度吊り(毎朝、盤面を数え直して、いちばん人狼らしい人を吊る進行)、狼の噛み先(占いか霊能の候補だけ)と護衛、狩人のCO(指定されたとき・黒を出されたとき・グレーが狭まって詰むとき・狼と狂が落ちて狩人ロラに持ち込めるとき・GJのあとに露出する・2人名乗ったとき)、狩人が出るタイミング(出る・ギドラ・潜伏の比較)、遅延COの扱い(噛まれ率は霊1.5倍・占い1.1〜1.2倍)、占い・霊は強制RCO(黒飼い進行がなく、潜伏の利が少ないため)、噛まれたあとの読み、確認したいこと | 管理 |
+| `knowledge/board_12a.md` | 盤面整理(12A猫)のメモ。依頼者に聞いた環境、盤面整理の手順、進行の比較、昼2〜昼4の盤面、狼の噛み先と護衛、狩人のCOと出るタイミングの比較(`progress`・`timing` の出力を文書にしたもの)、log17 の盤面の動き、確認したいこと | 管理 |
+| `knowledge/board_10a_11a.md` | 盤面整理(10A狩・11A)のメモ。人狼online では基本的に白ランオン(初日に白が出る環境)でやる、という依頼者の話。進行の比較、昼2〜昼4の盤面、狼の噛み先と護衛、狩人のCOと出るタイミングの比較、確認したいこと | 管理 |
 | `knowledge/boards/<id>.json` | 盤面の記録(公開された情報だけ。名乗り・結果・処刑・死亡を、段階ごとに)。`board` コマンドの入力。log16(6A)、log17(12A猫) | 管理 |
 | `knowledge/normal_12a.md` | 通常配役(12A猫)のメモ。役職、通知と行の書式、1日の進行、CO と結果の書式、人狼の夜チャット、分かったことと分からないこと。12A猫の練習部屋の出発点(元は log17 の1本) | 管理 |
 | `knowledge/seer_6a7a.md` | 依頼者が持ち込んだ、占い入りの小人数(6A・7A)の確率論メモ。実戦の勝率ではなく、読みゼロ・双方最善の理論値。6A の指示の元(練習部屋) | 管理 |
@@ -45,17 +45,18 @@
 python -m zinro_learn ingest logs/raw/<id>.txt --players "実名1=A,実名2=B,実名3=C" --alias 通称=実名1 --discussion-seconds 300
 python -m zinro_learn stats logs/normalized/<id>.json
 python -m zinro_learn timeline logs/normalized/<id>.json   # 役職、夜の行動と通知、死亡、人狼の夜チャットを、夜と昼の順に並べる
-python -m zinro_learn board knowledge/boards/<id>.json     # 盤面整理: 段階ごとの、合う役職の割り当て(真・狼・狂)、定番／ありうる／まれ、名乗った人の種類の見込み、確定した黒白、縄
+python -m zinro_learn board knowledge/boards/<id>.json     # 盤面整理: 段階ごとの、合う役職の割り当て、確定した黒白、縄
 python -m zinro_learn board --patterns [--setup 11a|10a-kari]  # 名乗りの数(占い-霊)ごとの、名乗りの種類の組み合わせ(既定は12A猫)
-python -m zinro_learn progress [--setup 12a-neko|11a|10a-kari] [--random-white on|off] --seers 3 [--result A:B:黒] [--guard none|medium|blacksayer|env|either] [--cat off|hidden|open|counter|gidra] [--hunter off|gidra|fake] [--hunter-scenes 指定 黒 詰み 狩ロラ GJ] [--hunter-day N] [--bites grey claim] [--seers-first] [--no-reads] [--no-rpp] [--no-seer-results] [--posterior]  # 進行の比較: 12A猫(既定)・11A・10A狩(白ランオン。10A狩の人数は推測)の3-1などで、グレー・占いロラ・黒スト・ロラ完遂の、村の勝率の試算。既定は、護衛 env(黒を出した占い、なければ霊能)・猫又 gidra(黒を刺されたら・指定されたら名乗る)・先黒吊り・村は霊能の報告で占いを読む・占いの夜の結果あり・人外側の同数の票(RPP)あり・狩人は指定されたら名乗ることがある。--seers-first は占い吊り優先、--no-reads・--no-rpp・--no-seer-results はそれぞれの操作なし。--cat counter は猫が名乗り、対抗猫が出て猫吊り。--hunter gidra(既定)は指定された狩人が名乗る(10A狩・11A は必ず=当然狩CO、12A猫は仮 0.7=依頼者: 指定されたらギドラの場合あり)、off は名乗らない、fake は人外も昼1の指定で偽の狩人を名乗る(仮の割合)。--bites は比べる狼の噛み方(既定は grey=灰を噛む[11A のメモの前提。実際と違う] と claim=名乗りを噛む[依頼者: 占いか霊能の各候補以外は噛まれない。標準])、--guard either は占い(真目)か霊能のどちらかを無作為に護衛(依頼者: 護衛するのもどちらかでいい)。狩人は、指定されたとき・黒を出されたとき・グレーが狭まって詰むとき(自分が灰から抜けると灰詰めが成り立つとき。依頼者に確認済み。数え方は占い師視点: 決め打ちが勝った占い師視点で、霊を真として数える。狂人が落ちたと確定していなければ、隠れた狂人の票も見る)・狼と狂が1ずつ落ちたと確定して狩人ロラに持ち込めるとき(狩COに人狼が対抗に出て、名乗った狩人を吊っていく)に名乗り(依頼者: 多分この位。詰む朝の例は依頼者)、GJのあとに露出することもある(依頼者。最新の答えは「基本的には指示されたら」なので、割合は仮の 0.1)。--hunter-scenes は狩人が名乗る場面を選び(指定を外すと、指定されても出ない=潜伏。「ギドラ」と「指定されない限り潜伏」は同じ動きでよい=依頼者)、--hunter-day N は指定されなくても昼 N の朝に自発で名乗る(出るタイミングの比較用)。名乗りを噛んだあとは、残りの名乗りを残して灰を噛むことが多い(依頼者。割合は仮 0.6)。遅れて名乗った名乗りは、残さずに噛み、噛む重みを 2 倍にする(依頼者: 遅延で偽に見られているからこそ霊噛みが起こる。仮)。出た狩人は基本的に即噛み(依頼者。偽目に見られているときは残す場合もあるが、村目は計算にない)。--posterior は、毎朝その時点の公開情報に合う世界を数え直して、人狼の見込みがいちばん高い人を吊る進行(尤度吊り)も比べる(遅い)
-python -m zinro_learn playout [--setup 12a-neko|11a|10a-kari] --seers 2 [--result A:C:白 ...] [--policy posterior] [--bite claim|grey] [--seed 1]  # 役職を無作為に配った1試合を動かして、昼1・昼2・昼3・昼4…の盤面(合う世界、人ごとの人狼の見込み、吊り先、夜の死亡、霊能の報告)を並べる
-python -m zinro_learn timing [--setup 12a-neko|11a|10a-kari] --seers 3 [--result A:B:黒] [--guard none|medium|blacksayer|env|either] [--cat off|hidden|open|counter|gidra] [--policies grey roll_keep roll_stop roll posterior] [--days 1 2 3 4] [--n 6000]  # 狩人が出るタイミングの比較: 昼 N の朝に自発で出る側・場面(黒を出された朝・グレーが狭まって詰む朝・狼と狂が落ちて狩人ロラに持ち込める朝・GJのあとの朝)で出る側を、指定されたときだけ出る側(ギドラ)と、同じ試合の途中から二手に分けて比べた、村の勝率の差(点。詰む朝・狩人ロラの朝は、役欠けで占いが欠けている世界とそうでない世界に分けた差も出す)。依頼者の問い「出るタイミングで、どこが有効で、どこがギドラの方が良くて、どこでは指定されない限り潜伏をするべきか」の目安(この計算の置き方での試算で、依頼者の答えではない)。結果は `board_12a.md`・`board_10a_11a.md` の「狩人が出るタイミング」
+python -m zinro_learn progress [--setup 12a-neko|11a|10a-kari] [--random-white on|off] --seers 3 [--result A:B:黒] [--guard none|medium|blacksayer|env|either] [--cat off|hidden|open|counter|gidra] [--hunter off|gidra|fake] [--hunter-scenes 指定 黒 詰み GJ] [--hunter-day N] [--bites grey claim] [--seers-first] [--no-reads] [--no-rpp] [--no-seer-results] [--posterior]  # 進行の比較: グレー・占いロラ・黒スト・ロラ完遂の、村の勝率の試算(12A猫・11A・10A狩)
+python -m zinro_learn playout [--setup 12a-neko|11a|10a-kari] --seers 2 [--result A:C:白 ...] [--policy posterior] [--bite claim|grey] [--seed 1]  # 役職を無作為に配った1試合を動かし、昼ごとの盤面を並べる
+python -m zinro_learn timing [--setup 12a-neko|11a|10a-kari] --seers 3 [--result A:B:黒] [--guard none|medium|blacksayer|env|either] [--cat off|hidden|open|counter|gidra] [--policies grey roll_keep roll_stop roll posterior] [--days 1 2 3 4] [--n 6000]  # 狩人が出るタイミングの比較: 出る側と、指定されたときだけ出る側を、同じ試合の途中から二手に分けて比べる
 python -m zinro_learn sync      # 発言例から、ガイドの「発言の型」の表を作り直す
 python -m zinro_learn check     # knowledge/ の整合性を調べる(問題があれば終了コード 1)
 python -m zinro_learn structure # 連投と返信の型を数える(発言例の reply_to を使う)
 python -m unittest
 ```
 
+- `progress`・`timing` で選べる条件(護衛・猫又・狩人の場面・狼の噛み方など)は `--help`。計算の置き方(依頼者の答えと、仮の数字)は `zinro_learn/progress.py` の先頭の説明と、`knowledge/board_12a.md`・`knowledge/board_10a_11a.md` に書いてある。
 - ログは新しい発言が上のままで貼ってよい(並びは自動で判定する)。ゲーム開始から勝利の通知まで、「鯖→」の個別通知も含める。
 - `--discussion-seconds` は1日あたりの議論時間(延長前の秒数)。指定すると字/分を出せる。延長は、ログの通知から数える(300秒 + 90秒 × 回数。3回なら570秒、2回なら480秒)。
 - 本文中の通称(例: ハンドル名の略称)は `--alias 通称=実名` で匿名化の対象に加える。ハンドル名がふつうの語句でもある人(例: 「なるほどね」のような名前)は、`--plain-word 名前` も付ける。`logs/private/<id>.players.json` の `plain_words` に入り、`check` の実名混入の検査から、その表の分だけ外れる(同じ名前が別の表で実名として載っていれば、そちらでは調べる)。
