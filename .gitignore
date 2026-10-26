@@ -7,3 +7,6 @@ logs/sessions/
 __pycache__/
 *.pyc
 .env
+
+# Node の依存(Playwright など。E2E を手元で動かすとき)
+node_modules/
