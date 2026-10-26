@@ -20,6 +20,8 @@
   夜3に噛まなかった方を噛むとは限らない。どちらかが噛めた場合は、どちらかを残す方が寧ろ多い。仮)。夜1は初日犠牲者(ダミー)を噛む日(依頼者の数え方。確認済み)。
   遅れて名乗った人(遅延CO。Board.late)は、偽に見られているので、噛まれ率が気持ち高くなる(依頼者: 霊は1.5倍、占いは1.1か1.2くらい。2倍はない。
   噛むなら偽に見られている今、という考え方)。噛む重みを LATE_BITE_MEDIUM・LATE_BITE_SEER 倍にし、残りの名乗りに残す割合も、噛まれ率がその倍になるように下げる。
+  霊能が噛まれて、占いの名乗りが1人だけ残った(占い決め打ちが勝った)夜は、その占いを SEER_BITE_AFTER_MEDIUM の割合で噛む(依頼者: 7割位でも良いかもしれない。
+  残り占いの真進行をされると負けるため。霊が抜かれた時点で、護衛先は一択=占いになる)。ほかの夜の、残す割合は LEAVE_CLAIMANT。
 - どの噛み方でも、名乗った狩人は、HUNTER_BITE の割合で、先に噛みに来る(依頼者: もちろん噛みに行く)。
 
 狩人の護衛(毎晩1人。狼がその人を噛もうとしたら、噛みは失敗する。狩人が生きているあいだだけ):
@@ -82,19 +84,24 @@
     明日が最終日というとき、狩人が出てグレーをロラで終わる): ロケットCOの盤面では、ほかの占いの名乗りが全員偽と分かった(霊能の報告と食い違った、または
     吊られて黒と出た)占いが決まってから数える。その占いの白黒だけを信じ、その占いと霊能(霊を真とし)は、灰に数えない。確定していない名乗りは、灰に数える。
     狂人が落ちたと確定していなければ、白の中に隠れて残っているとして数える(票は人狼に入るので、人外側が村人以上になる昼に、票を取られる。PP・RPP)。
-    狼と狂が落ちたと確定していて、縄に余裕がない(外せる回数が 0)ときは、出ない(出ると対抗が出て、狩人ロラで本物を先に吊ると、負けるため)。
-  - 狩人ロラ(HUNTER_ROLL_CO。依頼者: 人外が狼と狂が1ずつ落ちていると確定しているとき、狩COがあれば、対抗として出る。そうすると狩人ロラで終わる。
+    狼と狂が落ちたと確定していて、縄に余裕がない(外せる回数が 0)ときは、自分からは出ない(出ると対抗が出て、狩人ロラで本物を先に吊ると、負けるため。
+    計算の置き方。依頼者の答え: 狩人ロラの朝は、指定されたら出る)。
+  - 狩人ロラ(ROLL_COUNTER。依頼者: 人外が狼と狂が1ずつ落ちていると確定しているとき、狩COがあれば、対抗として出る。そうすると狩人ロラで終わる。
     実際にそういう場面が来る): 本物の占いが決まり(ほかの占いの名乗りは全員偽と分かった)、偽の占いのうち、人狼でない人(吊られて白、または噛まれた=狂人)が
-    死んでいて、人狼も吊られて黒と出ているとき、名乗る。狩COがあったときは(出た理由によらず)、ROLL_COUNTER の割合で、残りの人狼のうち1人が、
-    対抗の狩人として出る(大体1人。依頼者)。村は、狩人の名乗りを吊っていく(狩人ロラ)。偽目は読むが、大体1co目が吊られやすい(依頼者)ので、先に名乗った方を
-    HUNTER_PAIR_FIRST の割合で先に吊る(本物を先に吊ることが多い)。偽が黒と出れば、残る狩人は本物と分かって止まる。吊られた(または噛まれた)方が白なら、残る方が
-    人狼なので吊る。狩人が自分から出るのは、縄に余裕があるとき(外せる回数が 1 以上。本物を先に吊ってしまっても、次の日に
-    人狼を吊れる)だけ。指定されて出るときは、縄によらず、対抗が出る。
+    死んでいて、人狼も吊られて黒と出ているとき(roll_state)に、狩COがあったときは(指定された・黒を出された・詰む・GJなど、出た理由によらず)、
+    ROLL_COUNTER の割合で、残りの人狼のうち1人が、対抗の狩人として出る(大体1人。依頼者)。村は、狩人の名乗りを吊っていく(狩人ロラ)。偽目は読むが、
+    大体1co目が吊られやすい(依頼者)ので、先に名乗った方を HUNTER_PAIR_FIRST の割合で先に吊る(本物を先に吊ることが多い)。偽が黒と出れば、残る狩人は
+    本物と分かって止まる。吊られた(または噛まれた)方が白なら、残る方が人狼なので吊る。
+    狩人ロラに持ち込むために、狩人が自分から出る場面は、ない(依頼者: 狩人ロラになる場合は、既に2人以上の狩人がCOしているはずで、自分から出るも何もない。
+    出るのは、指定されたとき)。指定されて出るときは、縄によらず、対抗が出る。
+  - 自発の対抗(HUNTER_COUNTER_FREE。依頼者: 狩が出た場合に、対抗として出るのは、自発的の場合もかなりある。その場合は狩人ロラになる): 本物の狩人が名乗ったあと、
+    狼と狂が落ちたと確定していなくても、HUNTER_COUNTER_FREE の割合で、占いも猫も名乗っていない人狼(COUNTER_HUNTER_WOLF の割合)か狂人が、対抗の狩人として出る。
+    名乗った2人は、下の「2人の狩人が名乗ったら」の吊り方で吊る(本物が先に名乗っているので、先に名乗った方が吊られやすいと、本物が吊られやすい)。
   - 護衛が成功した(GJ)あとの昼にも露出することがある(HUNTER_GJ_CO。依頼者が前に言った「GJがあった時も露出する事ある」。ただし、最新の答えは
     「基本的には指示されたら」なので、割合は小さい。仮)。
   - 自発(hunter_day): 指定されなくても、昼 N の朝に出る形。標準では使わない。出るタイミングの比較のためにある(依頼者: 出るタイミングで、どこが有効で、
     どこがギドラの方が良くて、どこでは指定されない限り潜伏をするべきかを知りたい)。
-  - 場面は hunter_scenes で選べる(指定・黒・詰み・狩ロラ・GJ。既定は全部)。指定を外すと、指定されても出ない(吊られる)。
+  - 場面は hunter_scenes で選べる(指定・黒・詰み・GJ。既定は全部)。指定を外すと、指定されても出ない(吊られる)。
     「ギドラ」(指定されたら出る)と「指定されない限り潜伏」は、同じ動き(依頼者に確認済み)。
   狩人が出た朝が、GJの朝(前の夜にGJがあった)なら、狩人は護衛先を明かす: 護衛先は、狼が噛みに来た人なので人狼でなく、村は無作為の吊りから外す。
   狩COした狩人(偽の狩人COがない gidra のとき)は、盤面では狩人に決まった人として数える。
@@ -153,17 +160,19 @@ HUNTER_BITE = 1.0                # 依頼者の話(もちろん噛みに行く)�
 HUNTER_BLACK_CO = 1.0            # 仮。黒を出された本物の狩人が、朝のうちに狩COする割合(依頼者: 狩人が出るのは、指定されたら・グレーが狭まって詰む時・黒を出された時。多分この位)
 HUNTER_NARROW_CO = 1.0           # 仮。自分が灰から抜けると灰詰めが成り立つ(グレーが狭まって詰む)とき、本物の狩人が狩COする割合(「詰む」の読みは依頼者に確認済み。占い師視点で数え、隠れた狂人の票も見る)
 HUNTER_GJ_CO = 0.1               # 仮。護衛が成功した(GJ)あとの昼に、本物の狩人が狩COして露出する割合(依頼者: GJがあった時も露出する事ある。ただし最新の答えは「基本的には指示されたら」)
-HUNTER_ROLL_CO = 1.0             # 仮。狼と狂が1ずつ落ちたと確定している(狩人ロラに持ち込める)とき、本物の狩人が狩COする割合(依頼者: 狩COがあれば対抗として出て、狩人ロラで終わる。実際にそういう場面が来る)
-ROLL_COUNTER = 1.0               # 依頼者の話(大体1)。そのとき、残りの人狼のうち1人が、対抗の狩人として出る割合(狩COがあったら対抗として出る。2人出ることもあり、その場合は真狂狼の方が濃い)
+ROLL_COUNTER = 1.0               # 依頼者の話(大体1)。狼と狂が1ずつ落ちたと確定している(狩人ロラに持ち込める)とき、狩COがあれば(指定・黒・詰む・GJなど、出た理由によらず)、残りの人狼のうち1人が、対抗の狩人として出る割合(狩COがあったら対抗として出る。2人出ることもあり、その場合は真狂狼の方が濃い=狂人の対抗は入れていない)
+HUNTER_COUNTER_FREE = 0.4        # 仮。依頼者の話(狩が出た場合に、対抗として出るのは、自発的の場合もかなりある。その場合は狩人ロラになる)。本物の狩人が名乗ったあと、狼と狂が落ちたと確定していなくても、人外が自発で対抗の狩人として出る割合(「かなり」を 0.4 と置いた)
+COUNTER_HUNTER_WOLF = 0.7        # 仮。自発の対抗の狩人が人狼の割合(残りは狂人。猫の対抗と同じ 人狼 : 狂人 = 7 : 3 と置いた)
 LEAVE_CLAIMANT = 0.6             # 仮。名乗りを1人噛んだあと、残りの名乗りを噛まずに灰を噛む割合(依頼者: 夜3に噛まなかった方を噛むとは限らない。どちらかを残す方が寧ろ多い)
+SEER_BITE_AFTER_MEDIUM = 0.7    # 依頼者の話(7割位でも良いかもしれない。残り占いの真進行をされると負けるため)。霊能が噛まれて、占いの名乗りが1人だけ残った(占い決め打ちが勝った)夜に、その占いを噛む割合。霊が抜かれた時点で、護衛先は一択(占い)になる。ほかの夜は LEAVE_CLAIMANT
 LATE_BITE_MEDIUM = 1.5           # 依頼者の話(霊は1.5倍)。遅れて名乗った(遅延COの)霊能の名乗りを噛む重み(ほかの名乗りを 1 としたとき)。遅延で偽に見られているからこそ霊噛みなどが起こる(噛むなら偽に見られている今)が、2倍はない
 LATE_BITE_SEER = 1.15            # 依頼者の話(占いは1.1か1.2くらい)。遅れて名乗った占いの名乗りを噛む重み
 HUNTER_PAIR_WAIT = 0.3           # 仮。狩人が2人名乗ったとき、その日は吊らずに放置する割合(依頼者: 即吊りでなく、一旦放置する進行を取る場合もある)
 HUNTER_PAIR_READ = 0.7           # 仮。狩人が2人名乗ったとき、偽の方を吊る割合(依頼者: 偽目を吊る。これも大体は発言から。残りは、本物を吊ってしまう)
 HUNTER_PAIR_FIRST = 0.7          # 仮。狩人が2人名乗ったとき、先に名乗った方(1co目)を吊る割合(依頼者: 偽目は読むが、大体1co目が吊られやすい)。残りは、偽目を読む(HUNTER_PAIR_READ)
 HUNTERS = ("off", "gidra", "fake")
-HUNTER_SCENES = ("指定", "黒", "詰み", "狩ロラ", "GJ")   # 狩人が狩COする場面(hunter_scenes の選択肢。既定は全部)。指定=吊りを指定された、黒=黒を出された、詰み=自分が灰から抜けると灰詰めが成り立つ、狩ロラ=狼と狂が1ずつ落ちたと確定して、対抗が出て狩人ロラで終わる、GJ=護衛が成功したあと
-HUNTER_NAME = {"off": "狩人は名乗らない", "gidra": "狩人は指定されたら(12A猫は場合あり)・黒を出されたら・グレーが狭まって詰むとき・狩人ロラに持ち込めるときに名乗る",
+HUNTER_SCENES = ("指定", "黒", "詰み", "GJ")   # 狩人が狩COする場面(hunter_scenes の選択肢。既定は全部)。指定=吊りを指定された、黒=黒を出された、詰み=自分が灰から抜けると灰詰めが成り立つ、GJ=護衛が成功したあと(狩人ロラに持ち込むために自分から出る場面は、ない=依頼者)
+HUNTER_NAME = {"off": "狩人は名乗らない", "gidra": "狩人は指定されたら(12A猫は場合あり)・黒を出されたら・グレーが狭まって詰むときに名乗る",
                "fake": "狩人は上のとおり名乗り、人外も昼1の指定で偽の狩人を名乗る"}
 CATS = ("off", "hidden", "open", "counter", "gidra")
 CAT_NAME = {"off": "猫又の力なし", "hidden": "猫又は隠れている", "open": "猫又は名乗っている", "counter": "猫又は名乗り、対抗猫が出る",
@@ -239,6 +248,15 @@ def pick_fake_cat(roles: dict[str, str], alive: set[str], claimants: set[str], r
     wolves = [p for p in free if roles[p] == "人狼"]
     mads = [p for p in free if roles[p] == "狂人"]
     pool = (wolves if rng.random() < COUNTER_CAT_WOLF else mads) or wolves or mads
+    return rng.choice(pool) if pool else None
+
+
+def pick_fake_hunter(roles: dict[str, str], alive: set[str], claimants: set[str], rng: random.Random, exclude: set[str] | frozenset = frozenset()) -> str | None:
+    """自発の対抗の狩人になる人: 占いも猫も名乗っていない人狼(COUNTER_HUNTER_WOLF の割合)か狂人。いなければ None。"""
+    free = [p for p in sorted(alive) if p not in claimants and p not in exclude]
+    wolves = [p for p in free if roles[p] == "人狼"]
+    mads = [p for p in free if roles[p] == "狂人"]
+    pool = (wolves if rng.random() < COUNTER_HUNTER_WOLF else mads) or wolves or mads
     return rng.choice(pool) if pool else None
 
 
@@ -399,14 +417,21 @@ def play(prep: Prepared, roles: dict[str, str], policy: str, bite: str, rng: ran
         if gj_morning and gj_target is not None and gj_target not in gj_public:
             gj_public.append(gj_target)
             safe.add(gj_target)
-        if hunter_out == [real_hunter] and roll_state():
-            wolves_up = sorted(p for p in alive if roles[p] == "人狼")
-            if wolves_up and rng.random() < ROLL_COUNTER:
-                fake = rng.choice(wolves_up)
-                hunter_out.append(fake)
-                hunter_roll = True
-                if trace is not None:
-                    trace.append(("fakehunter", fake, "狩ロラ"))
+        if hunter_out == [real_hunter]:
+            if roll_state():
+                wolves_up = sorted(p for p in alive if roles[p] == "人狼")
+                if wolves_up and rng.random() < ROLL_COUNTER:
+                    fake = rng.choice(wolves_up)
+                    hunter_out.append(fake)
+                    hunter_roll = True
+                    if trace is not None:
+                        trace.append(("fakehunter", fake, "狩ロラ"))
+            elif rng.random() < HUNTER_COUNTER_FREE:                      # 自発の対抗(依頼者: かなりある)。名乗った2人を吊っていく
+                fake = pick_fake_hunter(roles, alive, claimants, rng, {fake_cat} if fake_out and fake_cat else set())       # 偽の猫を名乗っている人は、重ねて名乗らない
+                if fake is not None:
+                    hunter_out.append(fake)
+                    if trace is not None:
+                        trace.append(("fakehunter", fake, "自発"))
 
     def cats() -> tuple[bool, str | None, set[str]]:
         """(猫が2人名乗っていて決着前か, 偽と分かった猫, 名乗っている猫)。猫又の道連れが起きれば、どちらが本物か分かる。"""
@@ -519,8 +544,6 @@ def play(prep: Prepared, roles: dict[str, str], policy: str, bite: str, rng: ran
 
                 if not wins_with(len(greys_now)) and wins_with(len(greys_now) - 1) and rng.random() < HUNTER_NARROW_CO:
                     why = "詰み"                                   # グレーが狭まったら詰む時: 自分が灰から抜けると、灰詰めが成り立つので、出る(依頼者)
-            if why is None and "狩ロラ" in scenes and roll_ready and roll_safe and rng.random() < HUNTER_ROLL_CO:
-                why = "狩ロラ"                                     # 狼と狂が落ちたと確定: 狩COに対抗が出て、狩人ロラで終わる(依頼者)
             if why is None and "GJ" in scenes and gj_morning and rng.random() < HUNTER_GJ_CO:
                 why = "GJ"                                         # 護衛が成功したあとの昼に、露出する(依頼者)
             if why is None and hunter_day and night + 1 >= hunter_day:
@@ -656,13 +679,13 @@ def play(prep: Prepared, roles: dict[str, str], policy: str, bite: str, rng: ran
                 spared = True
             elif hunter != "off" and "指定" in scenes and target == real_hunter and target not in hunter_out and rng.random() < hunter_co:
                 # 吊りを指定された狩人は、ギドラCOをして吊りを避ける(本指定のタイミングで、狩もギドラCOをする)
-                earlier = [p for p in hunter_out if p in alive]
                 hunter_comes_out("指定")
                 if hunter_roll:                                       # 狼と狂が落ちたと確定していて、対抗が出た: 名乗った2人を吊っていく
                     target = roll_pick([p for p in hunter_out if p in alive])
                     break
-                if earlier:                                           # 狩人が2人名乗った(偽が先に出ていた): 偽目の方を吊る。一旦放置もある
-                    picked = pair_target(earlier[0], target)
+                ups = [p for p in hunter_out if p in alive]
+                if len(ups) >= 2:                                     # 狩人が2人名乗った(偽が先に出ていた、または、自発の対抗が出た): 先に名乗った方が吊られやすい。一旦放置もある
+                    picked = pair_target(ups[0], ups[1])
                     if picked is not None:
                         target = picked
                         break
@@ -700,7 +723,10 @@ def play(prep: Prepared, roles: dict[str, str], policy: str, bite: str, rng: ran
         nonwolf = sorted(p for p in alive if roles[p] != "人狼")
         open_nonwolf = [p for p in nonwolf if p not in exposed] or nonwolf
         late_open = [late_w[p] for p in open_nonwolf if p in claimants and p in late_w]            # 残っている、遅れて名乗った(偽に見られている)名乗りの、噛む重み
-        leave_p = 1 - min(1.0, (1 - LEAVE_CLAIMANT) * max(late_open)) if late_open else LEAVE_CLAIMANT    # 偽に見られている名乗りは、残されにくい(噛まれ率が重み倍。依頼者: 気持ち高くなる)
+        seers_up = [p for p in prep.seers if p in alive]
+        lone_seer = prep.medium in bitten_order and len(seers_up) == 1 and seers_up[0] in open_nonwolf     # 霊が噛まれて、占い決め打ちが勝ち、真目の占いが1人残った(依頼者: 残り占いの真進行をされると負けるので、占い噛みもある)
+        stay_p = 1 - SEER_BITE_AFTER_MEDIUM if lone_seer else LEAVE_CLAIMANT                                # 名乗りを残す割合
+        leave_p = 1 - min(1.0, (1 - stay_p) * max(late_open)) if late_open else stay_p                       # 偽に見られている名乗りは、残されにくい(噛まれ率が重み倍。依頼者: 気持ち高くなる)
         leave = bite == "claim" and claim_bitten and any(p in claimants for p in open_nonwolf) and rng.random() < leave_p       # 名乗りを1人噛んだあとは、残りの名乗りを残すことが多い(依頼者)
         if bite == "claim" and not leave:
             pool = [p for p in open_nonwolf if p in claimants] or [p for p in open_nonwolf if p not in claimants] or open_nonwolf

@@ -6,7 +6,7 @@
   python -m zinro_learn timeline logs/normalized/<id>.json [...]   # 役職、夜の行動と通知、死亡、人狼の夜チャットを、夜と昼の順に並べる
   python -m zinro_learn board knowledge/boards/<id>.json [--stage N]   # 盤面整理: 公開された情報に合う役職の割り当て(真・狼・狂)、確定した黒白、縄
   python -m zinro_learn board --patterns [--setup 12a-neko|11a|10a-kari]   # 名乗りの数(占い-霊)ごとの、名乗りの種類の組み合わせと、定番／ありうる／まれ
-  python -m zinro_learn progress [--setup 12a-neko|11a|10a-kari] [--random-white on|off] [--missing on|off] --seers 3 [--result A:B:黒] [--guard none|medium|blacksayer|env|either] [--cat off|hidden|open|counter|gidra] [--hunter off|gidra|fake] [--hunter-scenes 指定 黒 詰み 狩ロラ GJ] [--hunter-day N] [--bites grey claim] [--no-seer-results] [--no-rpp] [--seers-first] [--no-reads]   # 進行の比較(占いロラ・グレランなど)の、村の勝率の試算
+  python -m zinro_learn progress [--setup 12a-neko|11a|10a-kari] [--random-white on|off] [--missing on|off] --seers 3 [--result A:B:黒] [--guard none|medium|blacksayer|env|either] [--cat off|hidden|open|counter|gidra] [--hunter off|gidra|fake] [--hunter-scenes 指定 黒 詰み GJ] [--hunter-day N] [--bites grey claim] [--no-seer-results] [--no-rpp] [--seers-first] [--no-reads]   # 進行の比較(占いロラ・グレランなど)の、村の勝率の試算
   python -m zinro_learn timing [--setup 12a-neko|11a|10a-kari] --seers 3 [--result A:B:黒] [--guard none|medium|blacksayer|env|either] [--cat off|hidden|open|counter|gidra] [--policies grey roll_keep roll_stop roll posterior] [--days 1 2 3 4] [--n 6000]   # 狩人が出るタイミングの比較: 昼 N の朝に自発で出る側・場面(黒を出された朝・詰む朝・GJのあと)で出る側を、指定されたときだけ出る側と、同じ試合の途中から二手に分けて比べた勝率の差
   python -m zinro_learn playout [--setup 12a-neko|11a|10a-kari] --seers 2 [--result A:C:白 ...] [--policy posterior] [--bite claim|grey] [--seed 1]   # 1試合を動かして、昼1・昼2・昼3・昼4…の盤面を出す
   python -m zinro_learn sync     # 発言例から、ガイドの「発言の型」の表を作り直す
@@ -201,9 +201,9 @@ def add_board_options(p, hunter: bool = True) -> None:
                         "gidra=隠れていて、黒を刺されたら・指定されたら名乗る(12A猫の既定。猫又のいない配役は off)")
     if hunter:
         p.add_argument("--hunter", choices=HUNTERS, default="gidra",
-                       help="狩人の狩CO(ギドラ): gidra=吊りを指定された狩人が名乗る(既定。10A狩・11A は必ず=依頼者: 当然狩CO。12A猫は GIDRA_HUNTER の割合=依頼者: 場合あり。仮)。そのほか、黒を出されたとき・グレーが狭まって詰むとき(依頼者の答え)・GJのあとにも名乗る、off=名乗らない、fake=gidra に加えて、昼1の指定で人外が偽の狩人を名乗る(仮の割合)")
+                       help="狩人の狩CO(ギドラ): gidra=吊りを指定された狩人が名乗る(既定。10A狩・11A は必ず=依頼者: 当然狩CO。12A猫は GIDRA_HUNTER の割合=依頼者: 場合あり。仮)。そのほか、黒を出されたとき・グレーが狭まって詰むとき(依頼者の答え)・GJのあとにも名乗る。名乗った狩人には、人外が自発で対抗に出ることがある(依頼者: かなりある。その場合は狩人ロラ。仮の割合)、off=名乗らない、fake=gidra に加えて、昼1の指定で人外が偽の狩人を名乗る(仮の割合)")
         p.add_argument("--hunter-scenes", nargs="+", choices=list(HUNTER_SCENES), default=None,
-                       help="狩人が狩COする場面(既定は全部: 指定=吊りを指定された、黒=黒を出された、詰み=自分が灰から抜けると灰詰めが成り立つ、狩ロラ=狼と狂が1ずつ落ちたと確定して、狩COに対抗が出て狩人ロラで終わる、GJ=護衛が成功したあと)。指定を外すと、指定されても出ない(潜伏)")
+                       help="狩人が狩COする場面(既定は全部: 指定=吊りを指定された、黒=黒を出された、詰み=自分が灰から抜けると灰詰めが成り立つ、GJ=護衛が成功したあと)。指定を外すと、指定されても出ない(潜伏)")
         p.add_argument("--hunter-day", type=int, default=0,
                        help="指定されなくても、昼 N の朝に狩人が自発で名乗る(0 は名乗らない。出るタイミングの比較用)")
     p.add_argument("--no-reads", action="store_true", help="村の読みを入れない(霊能の報告で偽の占いを見抜く動きなし。11A のメモと同じ前提)")

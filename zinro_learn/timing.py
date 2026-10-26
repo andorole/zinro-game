@@ -9,7 +9,7 @@
 
 比べ方:
 - day: 指定されなくても、昼 N の朝に名乗る(自発)側と、指定されたときだけ名乗る側。
-- scene: 場面(黒を出された朝・グレーが狭まって詰む朝・狼と狂が落ちて狩人ロラに持ち込める朝・GJのあとの朝)で名乗る側と、指定されたときだけ名乗る側。
+- scene: 場面(黒を出された朝・グレーが狭まって詰む朝・GJのあとの朝)で名乗る側と、指定されたときだけ名乗る側。(狩人ロラに持ち込むために自分から出る場面は、ない=依頼者。狩人ロラになるときは、既に2人以上の狩人がCOしている)
   GJ は、GJのあとの朝すべてに出る側に倒して比べる(標準の割合 HUNTER_GJ_CO は小さいので、そのままだと試合が少ない)。
 """
 from __future__ import annotations
@@ -22,9 +22,9 @@ from concurrent.futures import ProcessPoolExecutor
 from . import progress as P
 from .board import Board
 
-SCENES = ("黒", "詰み", "狩ロラ", "GJ")
+SCENES = ("黒", "詰み", "GJ")
 MODES = ("day", "scene")
-SCENE_NAME = {"黒": "黒を出された朝", "詰み": "詰む朝", "狩ロラ": "狩ロラの朝", "GJ": "GJのあとの朝"}
+SCENE_NAME = {"黒": "黒を出された朝", "詰み": "詰む朝", "GJ": "GJのあとの朝"}
 
 
 def _state(board: Board, roles: dict[str, str], trace: list, is_event) -> tuple[int, int]:
@@ -149,6 +149,6 @@ def timing_text(board: Board, title: str, policies, days=(1, 2, 3, 4), n: int = 
         results = {s: paired(board, policy, "scene", s, n, guard, cat, seed, workers) for s in SCENES}
         by_scene = [cell(results[s], True) for s in SCENES]
         lines.append(f"  {P.POLICY_NAME[policy]}: 自発 " + " / ".join(by_day) + " | 場面 " + " / ".join(by_scene))
-        lines.append("    占いが欠けていない世界 → 欠けている世界(詰む朝・狩人ロラの朝): "
-                     + " / ".join(f"{SCENE_NAME[s]} {split_cell(results[s], False)} → {split_cell(results[s], True)}" for s in ("詰み", "狩ロラ")))
+        lines.append("    占いが欠けていない世界 → 欠けている世界(詰む朝): "
+                     + " / ".join(f"{SCENE_NAME[s]} {split_cell(results[s], False)} → {split_cell(results[s], True)}" for s in ("詰み",)))
     return "\n".join(lines)

@@ -74,7 +74,7 @@ class PairedTimingTest(unittest.TestCase):
             paired(neko(2), "grey", "scene", "夜", 10)
         with self.assertRaises(ValueError):
             paired(neko(2), "grey", "day", 0, 10)
-        self.assertEqual(SCENES, ("黒", "詰み", "狩ロラ", "GJ"))
+        self.assertEqual(SCENES, ("黒", "詰み", "GJ"))                  # 依頼者: 狩人ロラに持ち込むために、自分から出る場面はない
 
     def test_diff_and_stderr_are_none_without_a_decision_morning(self):
         empty = {"games": 0, "alt": 0, "base": 0, "alt_only": 0, "base_only": 0, "n": 10, "rows": {}}
@@ -83,7 +83,7 @@ class PairedTimingTest(unittest.TestCase):
 
     def test_the_text_lists_every_policy_and_marks_rare_scenes(self):
         text = timing_text(neko(2), "12A猫・2-1", ("grey", "roll"), days=(1, 2), n=600)
-        for word in ("12A猫・2-1", "グレー", "ロラ完遂", "自発", "場面", "—", "占いが欠けていない世界 → 欠けている世界", "狩人ロラの朝"):
+        for word in ("12A猫・2-1", "グレー", "ロラ完遂", "自発", "場面", "—", "占いが欠けていない世界 → 欠けている世界", "詰む朝"):
             self.assertIn(word, text)
 
     def test_the_command_line_runs_and_hides_the_hunter_options(self):
