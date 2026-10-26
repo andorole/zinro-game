@@ -11,19 +11,27 @@ from zinro_learn.progress import (
     FAKE_HUNTER_FIRST, GIDRA_CAT, GIDRA_HUNTER, GUARDS, HUNTER_BITE, HUNTER_COUNTER, HUNTER_NAME, HUNTERS, OPEN_CAT_BITE, POLICIES, POLICY_NAME, POSTERIOR, compare,
     compare_policies, compare_text, counter_cat, hit_rates, night_result, play, prepare, sample_world, win_rate,
     BITE_NAME, GUARD_NAME, HUNTER_BLACK_CO, HUNTER_GJ_CO, HUNTER_NARROW_CO, HUNTER_PAIR_READ, HUNTER_PAIR_WAIT, HUNTER_PAIR_FIRST, HUNTER_SCENES, LATE_BITE_MEDIUM, LATE_BITE_SEER,
-    COUNTER_HUNTER_WOLF, HUNTER_COUNTER_FREE, LEAVE_CLAIMANT, ROLL_COUNTER, SEER_BITE_AFTER_MEDIUM,
+    COUNTER_HUNTER_MAD_WOLF, COUNTER_HUNTER_TWO, COUNTER_HUNTER_WOLF, HUNTER_COUNTER_FREE, HUNTER_SPOT, LEAVE_CLAIMANT, ROLL_COUNTER, ROLL_SEE_MAD, SEER_BITE_AFTER_MEDIUM,
+    pick_fake_hunters,
 )
 
 
-_FREE_COUNTER = mock.patch("zinro_learn.progress.HUNTER_COUNTER_FREE", 0.0)
+# 仮の割合のうち、ほかの動きを調べるテストでは止めておくもの(調べるテストは、HunterFreeCounterTest・HunterRollTest・SeerBiteAfterMediumTest が、自分で動かす)
+_QUIET = {"HUNTER_COUNTER_FREE": 0.0,      # 自発の対抗
+          "COUNTER_HUNTER_TWO": 0.0,       # 対抗が2人(狩が3人名乗る形)
+          "ROLL_SEE_MAD": 0.0,             # 狩人ロラで、狂人と見切って止まる
+          "HUNTER_SPOT": 0.0}              # 占いを噛まない夜の、狩目の噛み
+_QUIET_PATCHES = [mock.patch(f"zinro_learn.progress.{name}", value) for name, value in _QUIET.items()]
 
 
 def setUpModule():
-    _FREE_COUNTER.start()          # 自発の対抗(仮の割合)は、ほかの動きを調べるテストでは止めておく。調べるテストは HunterFreeCounterTest
+    for patcher in _QUIET_PATCHES:
+        patcher.start()
 
 
 def tearDownModule():
-    _FREE_COUNTER.stop()
+    for patcher in _QUIET_PATCHES:
+        patcher.stop()
 
 
 class FirstRng:
@@ -1166,14 +1174,10 @@ class HunterFreeCounterTest(unittest.TestCase):
     def _play(self, rng, free=1.0, **patch):
         prep, roles = self._eleven()
         trace: list = []
-        with mock.patch("zinro_learn.progress.HUNTER_COUNTER_FREE", free), mock.patch("zinro_learn.progress.HUNTER_PAIR_WAIT", 0.0):
-            for name, value in patch.items():
-                mock.patch(f"zinro_learn.progress.{name}", value).start()
-            try:
-                play(prep, roles, "grey", "claim", rng, trace, seer_results=False, cat="off", hunter="gidra", hunter_scenes=("指定",))
-            finally:
-                mock.patch.stopall()
-                _FREE_COUNTER.start()
+        with contextlib.ExitStack() as stack:
+            for name, value in {"HUNTER_COUNTER_FREE": free, "HUNTER_PAIR_WAIT": 0.0, **patch}.items():
+                stack.enter_context(mock.patch(f"zinro_learn.progress.{name}", value))
+            play(prep, roles, "grey", "claim", rng, trace, seer_results=False, cat="off", hunter="gidra", hunter_scenes=("指定",))
         return trace
 
     def test_the_share_is_the_stated_kind(self):
@@ -1215,6 +1219,45 @@ class HunterFreeCounterTest(unittest.TestCase):
             trace, _ = endgame._play()
         self.assertEqual([t[:3] for t in trace if t[0] in ("hunter", "fakehunter")], [("hunter", "I", "詰み")])
 
+    def test_two_counters_make_three_claims_and_the_mix_is_the_stated_one(self):
+        """依頼者: 狩が3人名乗る形は、計算に入れた方がいい。内訳は 真狂狼 : 真狼狼 = 7.5 : 2.5。"""
+        self.assertEqual(COUNTER_HUNTER_MAD_WOLF, 0.75)
+        trace = self._play(FirstRng(), COUNTER_HUNTER_TWO=1.0, COUNTER_HUNTER_MAD_WOLF=1.0)
+        self.assertEqual([t[:3] for t in trace][:3], [("hunter", "A", "指定"), ("fakehunter", "E", "自発"), ("fakehunter", "H", "自発")])       # 真(A)・人狼(E)・狂人(H)
+        trace = self._play(FirstRng(), COUNTER_HUNTER_TWO=1.0, COUNTER_HUNTER_MAD_WOLF=0.0)
+        self.assertEqual([t[:3] for t in trace][:3], [("hunter", "A", "指定"), ("fakehunter", "E", "自発"), ("fakehunter", "F", "自発")])       # 真・人狼2人
+        trace = self._play(FirstRng(), COUNTER_HUNTER_TWO=0.0)
+        self.assertEqual([t[0] for t in trace if t[0] == "fakehunter"], ["fakehunter"])                                                 # 2人目は出ない
+
+    def test_the_picks_follow_the_stated_shares(self):
+        roles = {"A": "狩人", "B": "村人", "E": "人狼", "F": "人狼", "G": "人狼", "H": "狂人"}
+        alive = set(roles)
+        rng = random.Random(7)
+        sizes, mixed, singles = [], [], []
+        with mock.patch("zinro_learn.progress.COUNTER_HUNTER_TWO", COUNTER_HUNTER_TWO):
+            for _ in range(8000):
+                picks = pick_fake_hunters(roles, alive, set(), rng)
+                sizes.append(len(picks))
+                if len(picks) == 2:
+                    mixed.append(any(roles[q] == "狂人" for q in picks))
+                else:
+                    singles.append(roles[picks[0]] == "人狼")
+        self.assertAlmostEqual(sizes.count(2) / len(sizes), COUNTER_HUNTER_TWO, delta=0.02)               # 対抗は大体1人(依頼者)
+        self.assertAlmostEqual(sum(mixed) / len(mixed), COUNTER_HUNTER_MAD_WOLF, delta=0.05)             # 2人のうち、狂人を含む(真狂狼)が 7.5 : 2.5
+        self.assertAlmostEqual(sum(singles) / len(singles), COUNTER_HUNTER_WOLF, delta=0.03)             # 1人のとき、人狼 : 狂人 = 0.6 : 0.4 位(依頼者。自信なし)
+        self.assertEqual(COUNTER_HUNTER_WOLF, 0.6)
+
+    def test_two_counters_need_two_who_can_counter_and_those_who_claimed_something_never_do(self):
+        roles = {"A": "狩人", "B": "村人", "E": "人狼", "H": "狂人"}
+        with mock.patch("zinro_learn.progress.COUNTER_HUNTER_TWO", 1.0), mock.patch("zinro_learn.progress.COUNTER_HUNTER_MAD_WOLF", 0.0):
+            self.assertEqual(pick_fake_hunters(roles, set(roles), set(), FirstRng()), ["E"])              # 人狼が1人しかいなければ、真狼狼は揃わない。1人
+        with mock.patch("zinro_learn.progress.COUNTER_HUNTER_TWO", 1.0), mock.patch("zinro_learn.progress.COUNTER_HUNTER_MAD_WOLF", 1.0):
+            rng = random.Random(3)
+            for _ in range(200):
+                picks = pick_fake_hunters(roles, set(roles), {"E"}, rng)                                  # 占いを名乗っている E は、対抗の狩人には出ない
+                self.assertEqual(picks, ["H"])
+            self.assertEqual(pick_fake_hunters(roles, {"A", "B"}, set(), rng), [])                       # 人外が残っていなければ、出ない
+
     def test_the_counter_is_a_wolf_or_the_madman_and_the_share_is_about_right(self):
         prep, roles = self._eleven()
         who: list[str] = []
@@ -1232,6 +1275,97 @@ class HunterFreeCounterTest(unittest.TestCase):
         self.assertAlmostEqual(counters / outs, HUNTER_COUNTER_FREE, delta=0.06)
         self.assertTrue(set(who) <= {"E", "F", "G", "H"})                                       # 人狼か狂人。占いを名乗る I や、猫又 J ではない
         self.assertAlmostEqual(sum(1 for w in who if w != "H") / len(who), COUNTER_HUNTER_WOLF, delta=0.07)
+
+
+class PickHunterRng(FirstRng):
+    """昼の灰の吊り先だけ、狩人 J を選ぶ(指定される)。それ以外は先頭(夜の噛み先は、先頭の A)。"""
+
+    def choice(self, seq):
+        return "J" if "J" in seq and "E" in seq else seq[0]
+
+
+class HunterRollTest(unittest.TestCase):
+    """依頼者: 狩人ロラで、先に吊った名乗りが白なら、残る名乗りも吊る。ただし、狂人の可能性が限りなく高い場合は吊らない。
+    狩決め打ちで真狼を見てのロラなら、残り狩を吊る(大体、狩吊りに入る=真狼を見る)。"""
+
+    def _trace(self, rng=None, **patch):
+        # J が本物の狩人(昼1に指定される)。E・F・G が人狼、H が狂人、I が占い(名乗らない)、D が猫又、K が霊能(名乗る。噛まれない)
+        board = Board(players=list("ABCDEFGHIJK"), roles=dict(ROLES_12A_NEKO), rco=False)
+        board.claims = [("K", "霊能者")]
+        roles = {"A": "村人", "B": "村人", "C": "村人", "D": "猫又", "E": "人狼", "F": "人狼", "G": "人狼", "H": "狂人", "I": "占い師", "J": "狩人", "K": "霊能者"}
+        trace: list = []
+        patches = {"HUNTER_COUNTER_FREE": 1.0, "HUNTER_PAIR_WAIT": 0.0, "HUNTER_BITE": 0.0, "HUNTER_PAIR_FIRST": 1.0, **patch}      # 先に名乗った方から吊る
+        with contextlib.ExitStack() as stack:
+            for name, value in patches.items():
+                stack.enter_context(mock.patch(f"zinro_learn.progress.{name}", value))
+            play(prepare(board), roles, "grey", "grey", rng or PickHunterRng(), trace, seer_results=False, cat="off", hunter="gidra", hunter_scenes=("指定",))
+        return trace
+
+    def _hangs(self, trace):
+        return [t[1] for t in trace if t[0] == "hang"]
+
+    def test_the_remaining_claimant_is_hanged_after_a_white_one(self):
+        trace = self._trace(COUNTER_HUNTER_WOLF=0.0)                              # 対抗は狂人 H
+        self.assertEqual([t[:3] for t in trace][:2], [("hunter", "J", "指定"), ("fakehunter", "H", "自発")])
+        self.assertEqual(self._hangs(trace)[:2], ["J", "H"])                       # 先に名乗った本物の J が白。残る H も吊る(依頼者)
+
+    def test_the_roll_stops_when_the_madman_is_almost_sure(self):
+        """依頼者: ただし、狂人の可能性が限りなく高い場合は吊らない。本物を先に吊った白でも、残るのが狂人と見切れていれば、吊らない。"""
+        trace = self._trace(COUNTER_HUNTER_WOLF=0.0, ROLL_SEE_MAD=1.0)
+        self.assertEqual(self._hangs(trace)[:2], ["J", "B"])                       # 狂人 H は、吊らずに残る(縄を使わない)。灰の B を吊る
+        # 狂人を先に吊った白でも、残る名乗り(本物)を吊らない
+        trace = self._trace(COUNTER_HUNTER_WOLF=0.0, ROLL_SEE_MAD=1.0, HUNTER_PAIR_FIRST=0.0)
+        self.assertEqual(self._hangs(trace)[:2], ["H", "B"])
+        trace = self._trace(COUNTER_HUNTER_WOLF=0.0, ROLL_SEE_MAD=0.0, HUNTER_PAIR_FIRST=0.0)
+        self.assertEqual(self._hangs(trace)[:2], ["H", "J"])                       # 見切れなければ、残る本物も吊ってしまう
+
+    def test_a_wolf_counter_is_not_taken_for_the_madman(self):
+        """名乗りの中に狂人がいなければ、見切るものがない。人狼の対抗は、白のあとも吊る(真狼を見てのロラ)。"""
+        trace = self._trace(COUNTER_HUNTER_WOLF=1.0, ROLL_SEE_MAD=1.0)
+        self.assertEqual([t[:3] for t in trace if t[0] == "hang"][:2], [("hang", "J", "人間"), ("hang", "E", "人狼")])
+
+    def test_the_roll_that_sees_a_real_wolf_hangs_the_remaining_hunter(self):
+        """依頼者: 狩決め打ちで真狼を見てのロラ(狼と狂が落ちたと確定している)は、残り狩を吊る。狂人はもういないので、見切って止まることはない。"""
+        endgame = HunterEndgameTest()
+        trace, won = endgame._play()
+        with mock.patch("zinro_learn.progress.ROLL_SEE_MAD", 1.0):
+            sure, sure_won = endgame._play()
+        self.assertEqual(sure, trace)
+        self.assertEqual(sure_won, won)
+        kinds = [t[:3] for t in sure]
+        after = kinds[kinds.index(("hang", "I", "人間")):]
+        self.assertEqual([t for t in after if t[0] == "hang"][:2], [("hang", "I", "人間"), ("hang", "J", "人狼")])      # 白の本物 I のあと、残る対抗 J を吊る
+
+    def test_three_claims_roll_until_two_fakes_are_known(self):
+        """狩が3人名乗る形。本物は1人なので、偽が2人分(黒と出た名乗りと、狂人と見切った名乗り)分かるまで続ける。"""
+        trace = self._trace(COUNTER_HUNTER_TWO=1.0, COUNTER_HUNTER_MAD_WOLF=1.0)                          # 真 J・人狼 E・狂人 H
+        self.assertEqual([t[1] for t in trace if t[0] in ("hunter", "fakehunter")], ["J", "E", "H"])
+        self.assertEqual(self._hangs(trace)[:3], ["J", "E", "H"])                  # J は白、E は黒(まだ偽が1人分)。H も吊る
+        trace = self._trace(COUNTER_HUNTER_TWO=1.0, COUNTER_HUNTER_MAD_WOLF=1.0, ROLL_SEE_MAD=1.0)
+        self.assertEqual(self._hangs(trace)[:2], ["J", "E"])                       # 狂人 H と見切っているので、先に E を吊る
+        self.assertNotIn("H", self._hangs(trace)[:4])                              # E が黒と出て、偽が2人分分かった。H は吊らない
+        trace = self._trace(COUNTER_HUNTER_TWO=1.0, COUNTER_HUNTER_MAD_WOLF=0.0)                          # 真 J・人狼 E・人狼 F
+        self.assertEqual(self._hangs(trace)[:3], ["J", "E", "F"])                  # 人狼が2人。黒が2人出るまで続ける
+
+    def test_the_roll_state_can_draw_a_second_wolf(self):
+        """狼と狂が落ちたと確定している(狂人はもういない)ときの2人目は、人狼だけ(COUNTER_HUNTER_TWO×(1−COUNTER_HUNTER_MAD_WOLF))。"""
+        board = Board(players=list("ABCDEFGHIJKLM"), roles={"人狼": 3, "狂人": 1, "占い師": 1, "霊能者": 1, "狩人": 1, "村人": 6}, rco=True)
+        board.claims = [("A", "占い師"), ("B", "占い師"), ("C", "占い師"), ("K", "霊能者")]
+        board.results = [dict(kind="占い", first=True, player="C", target="E", color="黒")]
+        roles = {"A": "占い師", "B": "人狼", "C": "狂人", "D": "村人", "E": "村人", "F": "村人", "G": "村人", "H": "村人", "I": "狩人", "J": "人狼", "K": "霊能者", "L": "村人", "M": "人狼"}
+        prep = prepare(board)
+        prep.wolf_prob.update({"B": 1.0, "C": 0.9, "A": 0.0})
+
+        class Second(FirstRng):
+            def random(self):
+                return 0.2                                                         # COUNTER_HUNTER_TWO×(1−COUNTER_HUNTER_MAD_WOLF) = 0.25 より小さい
+
+        trace: list = []
+        with mock.patch("zinro_learn.progress.COUNTER_HUNTER_TWO", 1.0), mock.patch("zinro_learn.progress.HUNTER_BITE", 0.0):
+            play(prep, roles, "roll_keep", "grey", Second(), trace, seer_results=False, cat="off", hunter="gidra", hunter_scenes=("指定",), hunter_day=4)
+        fakes = [t for t in trace if t[0] == "fakehunter"]
+        self.assertEqual([t[1] for t in fakes], ["J", "M"])                        # 残る人狼 J・M が、2人とも対抗に出る(狂人 C は落ちている)
+        self.assertEqual({t[2] for t in fakes}, {"狩ロラ"})
 
 
 class SeerBiteAfterMediumTest(unittest.TestCase):
@@ -1290,6 +1424,65 @@ class SeerBiteAfterMediumTest(unittest.TestCase):
                 hit += bites[1] == "A"
         self.assertGreater(total, 1000)
         self.assertAlmostEqual(hit / total, SEER_BITE_AFTER_MEDIUM, delta=0.04)    # 霊が先に噛まれたあと、残った占いを噛む割合
+
+    def _hunter_trace(self, rng, hunter="gidra", hunter_day=0, **patch):
+        board = Board(players=list("ABCDEFGHIJK"), roles=dict(ROLES_12A_NEKO), rco=True)
+        board.claims = [("A", "占い師"), ("B", "占い師"), ("K", "霊能者")]
+        prep = prepare(board)
+        prep.wolf_prob.update({"B": 1.0, "A": 0.0})
+        trace: list = []
+        with contextlib.ExitStack() as stack:
+            for name, value in patch.items():
+                stack.enter_context(mock.patch(f"zinro_learn.progress.{name}", value))
+            play(prep, dict(self.ROLES), "roll_keep", "claim", rng, trace, seer_results=False, cat="off", hunter=hunter, hunter_scenes=("指定",), hunter_day=hunter_day)
+        return trace
+
+    def test_the_seer_comes_before_a_claimed_hunter_on_that_night(self):
+        """霊が抜かれたあとの占い噛み(7割)は、名乗った狩人より先(占い決め打ちで、残り占いの真進行をされると負けるため)。"""
+        trace = self._hunter_trace(self.MidLast(), hunter_day=2)                  # 昼2の朝に、狩人 G が名乗る
+        self.assertIn(("hunter", "G", "自発"), [t[:3] for t in trace])
+        self.assertEqual([t[1] for t in trace if t[0] == "bite"][:2], ["K", "A"])    # 霊 K のあと、名乗った狩人 G ではなく、占い A を噛む
+        hit = total = 0
+        for i in range(3000):
+            trace = self._hunter_trace(random.Random(i), hunter_day=2)
+            bites = [t[1] for t in trace if t[0] == "bite"]
+            if len(bites) >= 2 and bites[0] == "K" and ("hunter", "G", "自発") in [t[:3] for t in trace]:
+                total += 1
+                hit += bites[1] == "A"
+        self.assertGreater(total, 500)
+        self.assertAlmostEqual(hit / total, SEER_BITE_AFTER_MEDIUM, delta=0.05)
+
+    def test_when_the_seer_is_left_the_claimed_hunter_is_bitten(self):
+        """依頼者: 占いを噛まない夜は、ギドラCOがあって、そこが狩目なら、ギドラ噛み。"""
+        with mock.patch("zinro_learn.progress.SEER_BITE_AFTER_MEDIUM", 0.4):         # 残す割合 0.6 > 0.5
+            trace = self._hunter_trace(self.MidLast(), hunter_day=2)
+        self.assertEqual([t[1] for t in trace if t[0] == "bite"][:2], ["K", "G"])
+
+    def test_when_the_seer_is_left_and_nobody_claimed_the_hunter_is_bitten_as_a_hunter_suspect(self):
+        """依頼者: あとは狩目(狩人らしい人)。名乗っていない狩人を、HUNTER_SPOT の割合で、本物に当てる。残りは灰の無作為。"""
+        with mock.patch("zinro_learn.progress.SEER_BITE_AFTER_MEDIUM", 0.4):
+            trace = self._hunter_trace(self.MidLast(), HUNTER_SPOT=1.0)
+            self.assertEqual([t[1] for t in trace if t[0] == "bite"][:2], ["K", "G"])
+            trace = self._hunter_trace(self.MidLast(), HUNTER_SPOT=0.0)
+            self.assertEqual([t[1] for t in trace if t[0] == "bite"][:2], ["K", "I"])      # 灰の無作為(最後の灰)
+            trace = self._hunter_trace(self.MidLast(), hunter="off", HUNTER_SPOT=1.0)
+            self.assertEqual([t[1] for t in trace if t[0] == "bite"][:2], ["K", "I"])      # 狩人を数えない盤面では、狩目の噛みは入れない
+        trace = self._hunter_trace(self.MidLast(), HUNTER_SPOT=1.0)                      # 占いを噛む夜(7割)には、狩目の噛みは出ない
+        self.assertEqual([t[1] for t in trace if t[0] == "bite"][:2], ["K", "A"])
+
+    def test_the_hunter_suspect_share(self):
+        self.assertTrue(0 < HUNTER_SPOT < 1)                                             # 仮。狩目を噛んで、本物に当たる割合
+        hit = total = 0
+        with mock.patch("zinro_learn.progress.HUNTER_SPOT", HUNTER_SPOT):
+            for i in range(4000):
+                trace = self._hunter_trace(random.Random(i))
+                bites = [t[1] for t in trace if t[0] == "bite"]
+                if len(bites) >= 2 and bites[0] == "K" and bites[1] != "A":              # 占いを噛まなかった夜
+                    total += 1
+                    hit += bites[1] == "G"
+        self.assertGreater(total, 400)
+        self.assertGreater(hit / total, HUNTER_SPOT)                                      # 狩目に当たる分、灰の無作為(1/6くらい)より、本物に当たりやすい
+        self.assertLess(hit / total, HUNTER_SPOT + (1 - HUNTER_SPOT) * 0.5)
 
     def test_the_guard_goes_to_the_seer_once_the_medium_is_gone(self):
         """霊が抜かれた時点で、守り先は一択(占い)。環境の護衛は、黒を出した占い、なければ霊能、なければ真目の占い。"""

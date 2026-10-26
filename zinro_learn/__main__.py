@@ -201,7 +201,7 @@ def add_board_options(p, hunter: bool = True) -> None:
                         "gidra=隠れていて、黒を刺されたら・指定されたら名乗る(12A猫の既定。猫又のいない配役は off)")
     if hunter:
         p.add_argument("--hunter", choices=HUNTERS, default="gidra",
-                       help="狩人の狩CO(ギドラ): gidra=吊りを指定された狩人が名乗る(既定。10A狩・11A は必ず=依頼者: 当然狩CO。12A猫は GIDRA_HUNTER の割合=依頼者: 場合あり。仮)。そのほか、黒を出されたとき・グレーが狭まって詰むとき(依頼者の答え)・GJのあとにも名乗る。名乗った狩人には、人外が自発で対抗に出ることがある(依頼者: かなりある。その場合は狩人ロラ。仮の割合)、off=名乗らない、fake=gidra に加えて、昼1の指定で人外が偽の狩人を名乗る(仮の割合)")
+                       help="狩人の狩CO(ギドラ): gidra=吊りを指定された狩人が名乗る(既定。10A狩・11A は必ず=依頼者: 当然狩CO。12A猫は GIDRA_HUNTER の割合=依頼者: 場合あり。仮)。そのほか、黒を出されたとき・グレーが狭まって詰むとき(依頼者の答え)・GJのあとにも名乗る。名乗った狩人には、人外が自発で対抗に出ることがある(依頼者: かなりある。1人か、3人名乗る形も。その場合は狩人ロラ。仮の割合)、off=名乗らない、fake=gidra に加えて、昼1の指定で人外が偽の狩人を名乗る(仮の割合)")
         p.add_argument("--hunter-scenes", nargs="+", choices=list(HUNTER_SCENES), default=None,
                        help="狩人が狩COする場面(既定は全部: 指定=吊りを指定された、黒=黒を出された、詰み=自分が灰から抜けると灰詰めが成り立つ、GJ=護衛が成功したあと)。指定を外すと、指定されても出ない(潜伏)")
         p.add_argument("--hunter-day", type=int, default=0,
