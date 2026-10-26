@@ -1,0 +1,31 @@
+{
+  "manifest_version": 3,
+  "name": "zinro RM補助(個人用)",
+  "version": "0.1.0",
+  "description": "zinro.net の村主(RM)向けの補助。配役プリセット、追放/観戦のみ/除外リスト、荒らしの自動追放(試運転つき)。外部サーバーとは通信しません。",
+  "minimum_chrome_version": "116",
+  "permissions": ["storage"],
+  "content_scripts": [
+    {
+      "matches": ["https://zinro.net/m/*"],
+      "js": ["src/interceptor.js"],
+      "run_at": "document_start",
+      "world": "MAIN"
+    },
+    {
+      "matches": ["https://zinro.net/m/*"],
+      "js": [
+        "src/lib/text.js",
+        "src/lib/rules.js",
+        "src/lib/lists.js",
+        "src/lib/presets.js",
+        "src/lib/zinro.js",
+        "src/content/store.js",
+        "src/content/actions.js",
+        "src/content/ui.js",
+        "src/content/main.js"
+      ],
+      "run_at": "document_idle"
+    }
+  ]
+}

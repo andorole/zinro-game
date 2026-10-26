@@ -30,6 +30,7 @@
 | `knowledge/bot_prompt.md` | ボットへの指示(守ること、手順、局面別、出力形式)。調査結果を指示の形に直したもの | 管理 |
 | `zinro_bot/` | ボット(試作): ログの読み取り(`transcript.py`)、プロンプトの組み立て(`prompt.py`)、API 呼び出し(`llm.py`)、検査(`validate.py`)、1ターンの処理(`engine.py`)、過去ログの再生と評価(`replay.py`)、練習部屋のページの組み立て(`room.py`、`room_template.html`) | 管理 |
 | `.claude/skills/zinro-player/` | Claude Code で、API キーなしにボットを使うスキル | 管理 |
+| `zinro_ext/` | RM(村主)が自分で使う Chrome 拡張。配役プリセット、追放 / 観戦のみ / 除外のリスト、荒らしの自動追放(試運転つき)、観戦への移動。AI 参加者ではなく、チャットの自動投稿もしない。サーバーとは通信しない。詳しくは `zinro_ext/README.md` | 管理 |
 
 生ログと中間ファイルには他のプレイヤーの発言が含まれるので、git には載せない。`knowledge/` には、匿名化して言い換えたものだけを置く。
 
